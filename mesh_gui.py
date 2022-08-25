@@ -11,8 +11,7 @@ import numpy as np
 import pyglet
 import trimesh
 import trimesh.viewer
-import trimesh.transformations as tf
-import PIL.Image
+
 import networkx as nx
 from sklearn import svm, preprocessing
 
@@ -340,32 +339,7 @@ class Application:
             vertex_colors[valid_vertex] = colors[idx]
 
         self.original_mesh_window2.visual.vertex_colors = vertex_colors
-        # self.original_mesh_window2.apply_translation((1000,1000,1000))
-        # print(self.original_mesh_window2.face_colors)
-        # self.scene_widget2.scene.add_geometry(self.original_mesh_window2,geom_name = "original_mesh")
         self.scene_widget2._draw()
-
-    # def callback(self, dt):
-    #     # change camera location
-    #     self.scene_widget1._angles[2] += np.deg2rad(1)
-    #     ## self.scene_widget1.scene.set_camera(self.scene_widget1._angles)
-
-    #     # change scene
-    #     if len(self.scene_widget2.scene.graph.nodes) < 100:
-    #         geom = trimesh.creation.icosphere(radius=0.01)
-    #         geom.visual.face_colors = np.random.uniform(0, 1, (3,))
-    #         geom.apply_translation(np.random.uniform(-0.3, 0.3, (3,)))
-    #         self.scene_widget2.scene.add_geometry(geom)
-    #         self.scene_widget2._draw()
-
-    #     # change image
-    #     image = np.random.randint(0,
-    #                               255,
-    #                               (self.height - 10, self.width // 2 - 10, 3),
-    #                               dtype=np.uint8)
-    #     with io.BytesIO() as f:
-    #         PIL.Image.fromarray(image).save(f, format='JPEG')
-    #         self.image_widget.image = pyglet.image.load(filename=None, file=f)
 
     def _create_window(self, width, height):
         try:
@@ -407,36 +381,6 @@ class Application:
                     print("fitted")
                     self.predict()
                     print("predicted")
-                    # self.scene_widget2.scene.camera.resolution
-                    # origins, vectors, pixels = self.scene_widget1.scene.camera_rays()
-                    # resolution = self.scene_widget1.scene.camera.resolution
-                    # x, y = self.mouse_pos
-                    # # top left = 0,max_y
-                    # # bottom_right = max_x, min_y
-                    # # bottom left is at 0,0, but rays is given starting at top left and going to bottom right by columns
-
-                    # #if x < resolution[0]+self.padding:
-                    # print(self.scene_widget1.scene.camera.fov)
-                    # #then in first scene
-                    # #ray_pixel_coords
-                    # x_in_scene,y_in_scene = x-self.padding,y-self.padding
-                    # idx = x_in_scene*resolution[1]+((resolution[1]-1)-y_in_scene)
-                    # #print(x,y,x_in_scene,y_in_scene,idx,origins[idx], vectors[idx], origins[idx]+vectors[idx], pixels[idx])
-
-                    # current_origin, current_vector = origins[idx], vectors[idx]
-                    # # do the actual ray- mesh queries
-                    # original_mesh = self.scene_widget1.scene.geometry["original_mesh"]
-                    # try:
-                    #     points, index_ray, index_tri = original_mesh.ray.intersects_location([current_origin], [current_vector], multiple_hits=False)
-                    # #for idx in range(0,len(origins),100):
-                    #     geom = trimesh.creation.icosphere(radius=0.01)
-                    #     geom.visual.face_colors = np.random.uniform(0, 1, (3,))
-                    #     print(original_mesh.triangles_center[index_tri][0])
-                    #     geom.apply_translation(original_mesh.triangles_center[index_tri][0])
-                    #     self.scene_widget1.scene.add_geometry(geom)
-                    #     self.scene_widget1._draw()
-                    # except Exception as e:
-                    #     print("fail")
 
         @window.event
         def on_mouse_motion(x, y, dx, dy):
@@ -451,17 +395,7 @@ class Application:
                     [current_origin], [current_vector], multiple_hits=False
                 )
                 triangle_index = triangle_index[0]
-                # use_sphere = True
-                # if use_sphere:
-                #     if "cursor_sphere" in self.scene_widget1.scene.geometry:
-                #         cursor_sphere = self.scene_widget1.scene.geometry["cursor_sphere"]
-                #     else:
-                #         cursor_sphere = trimesh.creation.icosphere(radius=0.001)
-                #         cursor_sphere.visual.face_colors = (1.0,0,0,0.2)
-                #         self.scene_widget1.scene.add_geometry(cursor_sphere,geom_name="cursor_sphere")
-                #     cursor_sphere.apply_translation(-cursor_sphere.center_mass+original_mesh.triangles_center[triangle_index])
-                # else:
-                # self.scene_widget1.scene.delete_geometry("submesh")
+
                 redraw = False
                 # print("before",self.triangle_indices_by_group)
 
@@ -482,23 +416,6 @@ class Application:
                         geom_names_to_delete.append(previous_geom_name)
                         redraw = True
 
-                # for group,triangle_indices in enumerate(self.triangle_indices_by_group):
-                #     geom_name = f"{group}_{triangle_index}"
-                #     if group == self.key_pressed and triangle_index not in triangle_indices:
-                #         submesh = self.original_mesh_scaled.submesh([[triangle_index]])[0]
-                #         if group==1:
-                #             submesh.visual.face_colors=(1.0,0,0,1.0)
-                #         else:
-                #             submesh.visual.face_colors=(0,0,1.0,1.0)
-                #         self.scene_widget1.scene.add_geometry(submesh,geom_name=geom_name)
-                #         triangle_indices.add(triangle_index)
-                #         redraw=True
-                #     if group!=self.key_pressed and triangle_index in triangle_indices:
-                #         self.scene_widget1.scene.geometry[geom_name].apply_translation((-1000,-1000,-1000))
-                #         geom_names_to_delete.append(geom_name)
-                #         #self.scene_widget1.scene.delete_geometry(f"{group}_{triangle_index}")
-                #         triangle_indices.remove(triangle_index)
-                #         redraw=True
                 if redraw:
                     # self.scene_widget1.scene.delete_geometry("original_mesh")
                     self.triangle_indices_to_group_dict[triangle_index] = current_group
@@ -511,13 +428,6 @@ class Application:
                     self.scene_widget1.scene.add_geometry(submesh, geom_name=geom_name)
                     self.scene_widget1._draw()
                     self.scene_widget1.scene.delete_geometry(geom_names_to_delete)
-                # print("after",self.triangle_indices_by_group)
-
-                # original_mesh.visual.face_colors[index_tri]=(1.0,0,0,1.0)
-
-                # except Exception as e:
-                #     print(f"fail: {e}")
-                # self.mouse_pos = x, y
 
         return window
 
