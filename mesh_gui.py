@@ -24,15 +24,18 @@ import pymeshlab
 here = pathlib.Path(__file__).resolve().parent
 
 
-def average_over_one_ring(mesh, c):
+def average_over_one_ring(mesh, metrics):
+    if type(metrics) is not list:
+        metrics = [metrics]
     g = nx.from_edgelist(mesh.edges_unique)
     one_rings = [list(g[i].keys()) for i in range(len(mesh.vertices))]
 
-    avg = [0] * len(c)
-    for vertex_id, one_ring in enumerate(one_rings):
-        avg[vertex_id] = np.mean(c[one_ring])
+    avgs = [np.zeros_like(metric) for metric in metrics]
+    for current_avg, current_metric in zip(avgs, metrics):
+        for vertex_id in range(len(mesh.vertices)):
+            current_avg[vertex_id] = np.mean(current_metric[one_rings[vertex_id]])
 
-    return np.array(avg)
+    return avgs
 
 
 def average_over_n_ring(mesh, c, n):
@@ -265,28 +268,6 @@ def my_discrete_gaussian_curvature_measure(mesh):
     return np.asarray(gauss_curv)
 
 
-def create_scene():
-    """
-    Create a scene with a Fuze bottle, some cubes, and an axis.
-    Returns
-    ----------
-    scene : trimesh.Scene
-      Object with geometry
-    """
-    scene = trimesh.Scene()
-
-    # geom = trimesh.load(str(here / "content/MPI-FAUST/meshes/tr_reg_000.ply"))
-    geom = trimesh.load(str("/Users/ackermand/Documents/Downloads/410_roi1.obj"))
-    geom.vertices = (geom.vertices - np.min(geom.vertices, axis=0)) / (
-        np.amax(geom.vertices) - np.min(geom.vertices, axis=0)
-    )
-    print(np.max(geom.vertices, axis=0), np.min(geom.vertices, axis=0))
-    geom.visual.vertex_colors = [0.5, 0.5, 0.5, 1.0]
-    scene.add_geometry(geom, geom_name="original_mesh")
-
-    return scene
-
-
 class Application:
 
     """
@@ -296,7 +277,8 @@ class Application:
     def __init__(self):
         # geom = trimesh.load(str(here / "content/MPI-FAUST/meshes/tr_reg_000.ply"))
         ms = pymeshlab.MeshSet()
-        ms.load_new_mesh("./content/MPI-FAUST/meshes/tr_reg_000.ply")
+        # ms.load_new_mesh("/Users/ackermand/Documents/Downloads/410_roi1.obj")
+        ms.load_new_mesh("./content/MPI-FAUST/meshes/tr_reg_050.ply")
         mesh = ms.current_mesh()
         t = time.time()
         ms.meshing_repair_non_manifold_edges()
@@ -328,6 +310,9 @@ class Application:
         thickness = mesh.vertex_scalar_array()
         print("th", time.time() - t)
         t = time.time()
+
+        ms.compute_scalar_by_volumetric_obscurance()
+        obscurance = mesh.vertex_scalar_array()
 
         # create window with padding
         self.width, self.height = 480 * 2, 480
@@ -367,35 +352,41 @@ class Application:
             np.amax(geom.vertices) - np.min(geom.vertices, axis=0)
         )
         print(np.max(geom.vertices, axis=0), np.min(geom.vertices, axis=0))
-        geom.visual.vertex_colors = [0.5, 0.5, 0.5, 1.0]
+        obs = mesh.vertex_scalar_array()
+        vc = []
+
+        obs = (obs - np.min(obs)) / (np.max(obs) - np.min(obs))
+        for o in obs:
+            vc.append([o, o, o, 1.0])
+        geom.visual.vertex_colors = vc
+
         scene.add_geometry(geom, geom_name="original_mesh")
-
+        # scene.lights = trimesh.scene.lighting.autolight(scene)[0]
+        # print(scene.lights)
         self.original_mesh = scene.geometry["original_mesh"]
-
-        self.mean_curvature = average_over_one_ring(self.original_mesh, mean_curvature)
+        (
+            self.mean_curvature,
+            self.gaussian_curvature,
+            self.thickness,
+            self.obscurance,
+        ) = average_over_one_ring(
+            self.original_mesh,
+            [mean_curvature, gaussian_curvature, thickness, obscurance],
+        )
         print("mca", time.time() - t)
-        t = time.time()
-        self.gaussian_curvature = average_over_one_ring(
-            self.original_mesh, gaussian_curvature
-        )
-        print("gca", time.time() - t)
-        t = time.time()
-        self.thickness = average_over_one_ring(self.original_mesh, thickness)
-        print("tha", time.time() - t)
-        t = time.time()
 
-        invalids = (
-            np.isnan(self.mean_curvature)
-            | np.isinf(self.mean_curvature)
-            | np.isnan(self.gaussian_curvature)
-            | np.isinf(self.gaussian_curvature)
-            | np.isnan(self.thickness)
-            | np.isinf(self.thickness)
-        )
-        self.valid_vertices = {
-            i for i, is_invalid in enumerate(invalids) if ~is_invalid
-        }
-        print(len(self.original_mesh.vertices), len(self.valid_vertices))
+        # invalids = (
+        #     np.isnan(self.mean_curvature)
+        #     | np.isinf(self.mean_curvature)
+        #     | np.isnan(self.gaussian_curvature)
+        #     | np.isinf(self.gaussian_curvature)
+        #     | np.isnan(self.thickness)
+        #     | np.isinf(self.thickness)
+        # )
+        # self.valid_vertices = {
+        #     i for i, is_invalid in enumerate(invalids) if ~is_invalid
+        # }
+        # print(len(self.original_mesh.vertices), len(self.valid_vertices))
         self.original_mesh_scaled = self.original_mesh.copy()
         self.original_mesh_scaled.vertices += (
             self.original_mesh_scaled.vertex_normals * 0.0001
@@ -403,6 +394,7 @@ class Application:
         self.triangle_group_assignments = [] * len(self.original_mesh_scaled.faces)
         self.scene_widget1 = trimesh.viewer.SceneWidget(scene)
         self.scene_widget1.scene.camera._fov = [45.0, 45.0]
+
         # print(self.scene_widget1.scene.camera.resolution)
         # self.scene_widget1.scene.camera.fov = 60 * (self.scene_widget1.scene.camera.resolution /
         #                      self.scene_widget1.scene.camera.resolution.max())
@@ -414,6 +406,7 @@ class Application:
         # geom = trimesh.path.creation.box_outline((0.6, 0.6, 0.6))
         # scene.add_geometry(geom)
         self.original_mesh_window2 = self.original_mesh.copy()
+        self.original_mesh_window2.visual.vertex_colors = [0.5, 0.5, 0.5, 1]
         scene.add_geometry(self.original_mesh_window2, geom_name="original_mesh")
         self.scene_widget2 = trimesh.viewer.SceneWidget(scene)
         hbox.add(self.scene_widget2)
@@ -428,16 +421,63 @@ class Application:
 
         pyglet.app.run()
 
+    def cursor_triangle(self):
+        x, y = self.mouse_pos
+        origins, vectors, _ = self.scene_widget1.scene.camera_rays()
+        resolution = self.scene_widget1.scene.camera.resolution
+        x_in_scene, y_in_scene = x - self.padding, y - self.padding
+        idx = x_in_scene * resolution[1] + ((resolution[1] - 1) - y_in_scene)
+        current_origin, current_vector = origins[idx], vectors[idx]
+        # try:
+        _, _, triangle_index = self.original_mesh.ray.intersects_location(
+            [current_origin], [current_vector], multiple_hits=False
+        )
+        return triangle_index[0]
+
+    def recenter(self):
+        triangle_index = self.cursor_triangle()
+        if "bounding_box_needed_for_centering" not in self.scene_widget1.scene.geometry:
+            geom = trimesh.path.creation.box_outline((1000, 1000, 1000))
+            self.scene_widget1.scene.add_geometry(
+                geom, geom_name="bounding_box_needed_for_centering"
+            )
+            self.previous_offset = 0, 0, 0
+        geom = self.scene_widget1.scene.geometry["bounding_box_needed_for_centering"]
+        geom.vertices -= self.previous_offset
+
+        points = self.original_mesh.triangles[triangle_index]
+        center = self.original_mesh.triangles_center[triangle_index]
+        geom.vertices += center
+        self.previous_offset = center
+
+        # self.scene_widget1.scene.camera_transform = (
+        #     self.scene_widget1.scene.camera.look_at(
+        #         points=points, center=center, distance=1
+        #     ),
+        # )
+        look_at = self.scene_widget1.scene.camera.look_at(
+            points=points, center=center, distance=0.5
+        )
+        self.scene_widget1._initial_camera_transform = look_at
+        print(center, self.scene_widget1.scene.centroid)
+        self.scene_widget1.reset_view()
+
+        # trackball._target =
+
+        # self.original_mesh.apply_translation(triangle_index)
+
     def fit(self):
         self.svc = svm.SVC()
 
         vertex_indices = list(self.vertex_indices_to_group_dict.keys())
+        print(self.mean_curvature, vertex_indices)
         groups = list(self.vertex_indices_to_group_dict.values())
         data = list(
             zip(
                 self.mean_curvature[vertex_indices],
                 self.gaussian_curvature[vertex_indices],
                 self.thickness[vertex_indices],
+                self.obscurance[vertex_indices],
             )
         )
         self.scaler = preprocessing.StandardScaler().fit(data)
@@ -447,9 +487,10 @@ class Application:
     def predict(self):
         test = list(
             zip(
-                self.mean_curvature[list(self.valid_vertices)],
-                self.gaussian_curvature[list(self.valid_vertices)],
-                self.thickness[list(self.valid_vertices)],
+                self.mean_curvature,
+                self.gaussian_curvature,
+                self.thickness,
+                self.obscurance,
             )
         )
         test_transformed = self.scaler.transform(test)
@@ -461,10 +502,10 @@ class Application:
         vertex_colors = [(0.5, 0.5, 0.5, 1.0)] * len(
             self.original_mesh_window2.vertices
         )
-        for idx, valid_vertex in enumerate(self.valid_vertices):
-            vertex_colors[valid_vertex] = colors[idx]
+        # for idx, valid_vertex in enumerate(self.valid_vertices):
+        #     vertex_colors[valid_vertex] = colors[idx]
 
-        self.original_mesh_window2.visual.vertex_colors = vertex_colors
+        self.original_mesh_window2.visual.vertex_colors = colors  # vertex_colors
         self.scene_widget2._draw()
 
     def _create_window(self, width, height):
@@ -498,10 +539,7 @@ class Application:
                 if symbol == pyglet.window.key.Q:
                     window.close()
                 if symbol == pyglet.window.key.C:
-                    print(
-                        len(self.scene_widget1.scene.camera_rays()[0]),
-                        self.scene_widget1.scene.camera.resolution,
-                    )
+                    self.recenter()
                 if symbol == pyglet.window.key.P:
                     self.fit()
                     print("fitted")
@@ -510,17 +548,10 @@ class Application:
 
         @window.event
         def on_mouse_motion(x, y, dx, dy):
+            self.mouse_pos = x, y
             if self.key_pressed:
-                origins, vectors, _ = self.scene_widget1.scene.camera_rays()
-                resolution = self.scene_widget1.scene.camera.resolution
-                x_in_scene, y_in_scene = x - self.padding, y - self.padding
-                idx = x_in_scene * resolution[1] + ((resolution[1] - 1) - y_in_scene)
-                current_origin, current_vector = origins[idx], vectors[idx]
-                # try:
-                _, _, triangle_index = self.original_mesh.ray.intersects_location(
-                    [current_origin], [current_vector], multiple_hits=False
-                )
-                triangle_index = triangle_index[0]
+                triangle_index = self.cursor_triangle()
+
                 # use_sphere = True
                 # if use_sphere:
                 #     if "cursor_sphere" in self.scene_widget1.scene.geometry:
@@ -556,8 +587,7 @@ class Application:
                     # self.scene_widget1.scene.delete_geometry("original_mesh")
                     self.triangle_indices_to_group_dict[triangle_index] = current_group
                     for v in self.original_mesh.faces[triangle_index]:
-                        if v in self.valid_vertices:
-                            self.vertex_indices_to_group_dict[v] = current_group
+                        self.vertex_indices_to_group_dict[v] = current_group
 
                     submesh = self.original_mesh_scaled.submesh([[triangle_index]])[0]
                     submesh.visual.face_colors = self.group_colors[current_group]
