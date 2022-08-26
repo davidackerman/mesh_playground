@@ -11,10 +11,14 @@ import numpy as np
 import pyglet
 import trimesh
 import trimesh.viewer
-
+import trimesh.transformations as tf
+import PIL.Image
 import networkx as nx
 from sklearn import svm, preprocessing
 
+import numba
+from numba import jit
+from numba.typed import Dict
 
 here = pathlib.Path(__file__).resolve().parent
 
@@ -51,27 +55,146 @@ def average_over_n_ring(mesh, c, n):
     return np.array(avg)
 
 
+# @jit(nopython=True)
+# def jit_my_discrete_mean_curvature_measure(
+#     g,
+#     face_angles_row,
+#     face_angles_col,
+#     face_angles_data,
+#     fa,
+#     fae,
+#     fau,
+#     vertices,
+#     vertex_faces,
+#     area_faces,
+# ):
+#     """Calculate discrete mean curvature of mesh using one-ring neighborhood."""
+
+#     # one-rings (immediate neighbors of) each vertex
+#     # g = nx.from_edgelist(edges_unique)
+
+#     # cotangents of angles and store in dictionary based on corresponding vertex and face
+#     keys = tuple(zip(face_angles_row, face_angles_col))
+#     cotangents = dict(zip(keys, 1 / np.tan(face_angles_data)))
+
+#     # discrete Laplace-Beltrami contribution of the shared edge of adjacent faces:
+#     #        /*\
+#     #       / * \
+#     #      /  *  \
+#     #    vi___*___vj
+#     #
+#     # store results in dictionary with vertex ids as keys
+#     keys = tuple(zip(fae[:, 0], fae[:, 1]))
+#     cotangent_sums = np.array(
+#         [
+#             cotangents[(v[0], fa[i][0])] + cotangents[(v[1], fa[i][1])]
+#             for i, v in enumerate(fau)
+#         ]
+#     )
+#     edge_measure = dict(
+#         zip(
+#             keys,
+#             (vertices[fae[:, 1]] - vertices[fae[:, 0]]) * cotangent_sums[:, None],
+#         )
+#     )
+
+#     # calculate mean curvature using one-ring
+#     mean_curv = [0] * len(vertices)
+#     for vertex_id, face_ids in enumerate(vertex_faces):
+#         face_ids = face_ids[face_ids != -1]  # faces associated with vertex_id
+#         one_ring = list(g[vertex_id].keys())
+#         delta_s = 0
+
+#         for one_ring_vertex_id in one_ring:
+#             if (vertex_id, one_ring_vertex_id) in edge_measure:
+#                 delta_s += edge_measure[(vertex_id, one_ring_vertex_id)]
+#             elif (one_ring_vertex_id, vertex_id) in edge_measure:
+#                 delta_s -= edge_measure[(one_ring_vertex_id, vertex_id)]
+
+#         delta_s *= 1 / (2 * np.sum(area_faces[face_ids]) / 3)  # use 1/3 of the areas
+#         mean_curv[vertex_id] = 0.5 * np.linalg.norm(delta_s)
+
+#     return np.array(mean_curv)
+
+
 def my_discrete_mean_curvature_measure(mesh):
+    """Calculate discrete mean curvature of mesh using one-ring neighborhood."""
+
+    # one-rings (immediate neighbors of) each vertex
+    g = nx.from_edgelist(mesh.edges_unique)
+
+    # cotangents of angles and store in dictionary based on corresponding vertex and face
+    face_angles = mesh.face_angles_sparse
+    keys = tuple(zip(face_angles.row, face_angles.col))
+    cotangents = dict(zip(keys, 1 / np.tan(face_angles.data)))
+
+    # discrete Laplace-Beltrami contribution of the shared edge of adjacent faces:
+    #        /*\
+    #       / * \
+    #      /  *  \
+    #    vi___*___vj
+    #
+    # store results in dictionary with vertex ids as keys
+    fa = mesh.face_adjacency
+    fae = mesh.face_adjacency_edges
+    keys = tuple(zip(fae[:, 0], fae[:, 1]))
+    cotangent_sums = np.array(
+        [
+            cotangents[(v[0], fa[i][0])] + cotangents[(v[1], fa[i][1])]
+            for i, v in enumerate(mesh.face_adjacency_unshared)
+        ]
+    )
+    edge_measure = dict(
+        zip(
+            keys,
+            (mesh.vertices[fae[:, 1]] - mesh.vertices[fae[:, 0]])
+            * cotangent_sums[:, None],
+        )
+    )
+
+    # calculate mean curvature using one-ring
+    mean_curv = [0] * len(mesh.vertices)
+    for vertex_id, face_ids in enumerate(mesh.vertex_faces):
+        face_ids = face_ids[face_ids != -1]  # faces associated with vertex_id
+        one_ring = list(g[vertex_id].keys())
+        delta_s = 0
+
+        for one_ring_vertex_id in one_ring:
+            if (vertex_id, one_ring_vertex_id) in edge_measure:
+                delta_s += edge_measure[(vertex_id, one_ring_vertex_id)]
+            elif (one_ring_vertex_id, vertex_id) in edge_measure:
+                delta_s -= edge_measure[(one_ring_vertex_id, vertex_id)]
+
+        delta_s *= 1 / (
+            2 * np.sum(mesh.area_faces[face_ids]) / 3
+        )  # use 1/3 of the areas
+        mean_curv[vertex_id] = 0.5 * np.linalg.norm(delta_s)
+
+    return np.array(mean_curv)
+
+
+def old_my_discrete_mean_curvature_measure(mesh):
     """Calculate discrete mean curvature of mesh using one-ring neighborhood."""
 
     # one-rings (immediate neighbors of) each vertex
     t = time.time()
     g = nx.from_edgelist(mesh.edges_unique)
-    print("inside", time.time() - t)
-    t = time.time()
     one_rings = [list(g[i].keys()) for i in range(len(mesh.vertices))]
     print("inside", time.time() - t)
     t = time.time()
 
     # cotangents of angles and store in dictionary based on corresponding vertex and face
-    face_angles = mesh.face_angles_sparse
-    print("inside 2", time.time() - t)
-    t = time.time()
-    temp = 1 / np.tan(face_angles.data)
-    # temp_cotangents = { f"{vertex},{face}":temp[idx] for idx,(vertex,face) in enumerate(zip(face_angles.row, face_angles.col))}
-    keys = tuple(zip(face_angles.row, face_angles.col))
-    cotangents = dict(zip(keys, temp))
+
     print("inside 3", time.time() - t)
+    t = time.time()
+    face_angles = mesh.face_angles_sparse
+    cotangents = {
+        f"{vertex},{face}": 1 / np.tan(angle)
+        for vertex, face, angle in zip(
+            face_angles.row, face_angles.col, face_angles.data
+        )
+    }
+    print("inside 4", time.time() - t)
     t = time.time()
     # discrete Laplace-Beltrami contribution of the shared edge of adjacent faces:
     #        /*\
@@ -102,7 +225,9 @@ def my_discrete_mean_curvature_measure(mesh):
             elif f"{one_ring_vertex_id},{vertex_id}" in edge_measure:
                 delta_s -= edge_measure[f"{one_ring_vertex_id},{vertex_id}"]
 
-        delta_s *= 1 / (2 * sum(mesh.area_faces[face_ids]) / 3)  # use 1/3 of the areas
+        delta_s *= 1 / (
+            2 * np.sum(mesh.area_faces[face_ids]) / 3
+        )  # use 1/3 of the areas
         mean_curv[vertex_id] = 0.5 * np.linalg.norm(delta_s)
 
     return np.array(mean_curv)
@@ -149,34 +274,7 @@ def create_scene():
     """
     scene = trimesh.Scene()
 
-    # plane
-    # geom = trimesh.creation.box((0.5, 0.5, 0.01))
-    # geom.apply_translation((0, 0, -0.005))
-    # geom.visual.face_colors = (.6, .6, .6)
-    # scene.add_geometry(geom)
-
-    # # axis
-    # geom = trimesh.creation.axis(0.02)
-    # scene.add_geometry(geom)
-
-    # box_size = 0.1
-
-    # # box1
-    # geom = trimesh.creation.box((box_size,) * 3)
-    # geom.visual.face_colors = np.random.uniform(
-    #     0, 1, (len(geom.faces), 3))
-    # transform = tf.translation_matrix([0.1, 0.1, box_size / 2])
-    # scene.add_geometry(geom, transform=transform)
-
-    # # box2
-    # geom = trimesh.creation.box((box_size,) * 3)
-    # geom.visual.face_colors = np.random.uniform(
-    #     0, 1, (len(geom.faces), 3))
-    # transform = tf.translation_matrix([-0.1, 0.1, box_size / 2])
-    # scene.add_geometry(geom, transform=transform)
-
-    # fuze
-    # geom = trimesh.load(str(here / 'content/MPI-FAUST/meshes/tr_reg_000.ply'))
+    # geom = trimesh.load(str(here / "content/MPI-FAUST/meshes/tr_reg_000.ply"))
     geom = trimesh.load(str("/Users/ackermand/Documents/Downloads/410_roi1.obj"))
     geom.vertices = (geom.vertices - np.min(geom.vertices, axis=0)) / (
         np.amax(geom.vertices) - np.min(geom.vertices, axis=0)
@@ -184,13 +282,6 @@ def create_scene():
     print(np.max(geom.vertices, axis=0), np.min(geom.vertices, axis=0))
     geom.visual.vertex_colors = [0.5, 0.5, 0.5, 1.0]
     scene.add_geometry(geom, geom_name="original_mesh")
-
-    # sphere
-    # geom = trimesh.creation.icosphere(radius=0.05)
-    # geom.visual.face_colors = np.random.uniform(
-    #     0, 1, (len(geom.faces), 3))
-    # transform = tf.translation_matrix([0.1, -0.1, box_size / 2])
-    # scene.add_geometry(geom, transform=transform)
 
     return scene
 
@@ -232,11 +323,26 @@ class Application:
         self.original_mesh = scene.geometry["original_mesh"]
 
         t = time.time()
+        m = self.original_mesh
+        # jit_my_discrete_mean_curvature_measure(
+        #     list(nx.to_dict_of_lists(nx.from_edgelist(m.edges_unique)).values()),
+        #     m.face_angles_sparse.row,
+        #     m.face_angles_sparse.col,
+        #     m.face_angles_sparse.data,
+        #     m.face_adjacency,
+        #     m.face_adjacency_edges,
+        #     m.face_adjacency_unshared,
+        #     m.vertices,
+        #     m.vertex_faces,
+        #     m.area_faces,
+        # )
         mean_curvature = my_discrete_mean_curvature_measure(self.original_mesh)
+        # old = old_my_discrete_mean_curvature_measure(self.original_mesh)
+        # print("equal?", np.array_equal(mean_curvature, old))
         # mean_curvature[0]=np.NaN
         print("mc", time.time() - t)
         t = time.time()
-        gaussian_curvature = my_discrete_gaussian_curvature_measure(self.original_mesh)
+        gaussian_curvature = my_discrete_gaussian_curvature_measure(self.original_meqsh)
         print("gc", time.time() - t)
         t = time.time()
         thickness = trimesh.proximity.thickness(
@@ -395,7 +501,17 @@ class Application:
                     [current_origin], [current_vector], multiple_hits=False
                 )
                 triangle_index = triangle_index[0]
-
+                # use_sphere = True
+                # if use_sphere:
+                #     if "cursor_sphere" in self.scene_widget1.scene.geometry:
+                #         cursor_sphere = self.scene_widget1.scene.geometry["cursor_sphere"]
+                #     else:
+                #         cursor_sphere = trimesh.creation.icosphere(radius=0.001)
+                #         cursor_sphere.visual.face_colors = (1.0,0,0,0.2)
+                #         self.scene_widget1.scene.add_geometry(cursor_sphere,geom_name="cursor_sphere")
+                #     cursor_sphere.apply_translation(-cursor_sphere.center_mass+original_mesh.triangles_center[triangle_index])
+                # else:
+                # self.scene_widget1.scene.delete_geometry("submesh")
                 redraw = False
                 # print("before",self.triangle_indices_by_group)
 
