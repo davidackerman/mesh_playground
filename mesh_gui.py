@@ -7,8 +7,8 @@ import pathlib
 import time
 import glooey
 import numpy as np
-
 import pyglet
+
 import trimesh
 import trimesh.viewer
 import trimesh.transformations as tf
@@ -19,6 +19,7 @@ from sklearn import svm, preprocessing
 import numba
 from numba import jit
 from numba.typed import Dict
+import pymeshlab
 
 here = pathlib.Path(__file__).resolve().parent
 
@@ -293,9 +294,45 @@ class Application:
     """
 
     def __init__(self):
+        # geom = trimesh.load(str(here / "content/MPI-FAUST/meshes/tr_reg_000.ply"))
+        ms = pymeshlab.MeshSet()
+        ms.load_new_mesh("./content/MPI-FAUST/meshes/tr_reg_000.ply")
+        mesh = ms.current_mesh()
+        t = time.time()
+        ms.meshing_repair_non_manifold_edges()
+        ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=0)
+        # jit_my_discrete_mean_curvature_measure(
+        #     list(nx.to_dict_of_lists(nx.from_edgelist(m.edges_unique)).values()),
+        #     m.face_angles_sparse.row,
+        #     m.face_angles_sparse.col,
+        #     m.face_angles_sparse.data,
+        #     m.face_adjacency,
+        #     m.face_adjacency_edges,
+        #     m.face_adjacency_unshared,
+        #     m.vertices,
+        #     m.vertex_faces,
+        #     m.area_faces,
+        # )
+        mean_curvature = mesh.vertex_scalar_array()
+        # old = old_my_discrete_mean_curvature_measure(self.original_mesh)
+        # print("equal?", np.array_equal(mean_curvature, old))
+        # mean_curvature[0]=np.NaN
+        print("mc", time.time() - t)
+        t = time.time()
+        ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=1)
+        gaussian_curvature = mesh.vertex_scalar_array()
+        print("gc", time.time() - t)
+        t = time.time()
+
+        ms.compute_scalar_by_shape_diameter_function_per_vertex()
+        thickness = mesh.vertex_scalar_array()
+        print("th", time.time() - t)
+        t = time.time()
+
         # create window with padding
         self.width, self.height = 480 * 2, 480
         self.mouse_pos = 0, 0
+
         window = self._create_window(width=self.width, height=self.height)
 
         self.key_pressed = None
@@ -319,39 +356,21 @@ class Application:
         hbox.set_padding(self.padding)
 
         # scene widget for changing camera location
-        scene = create_scene()
-        self.original_mesh = scene.geometry["original_mesh"]
 
-        t = time.time()
-        m = self.original_mesh
-        # jit_my_discrete_mean_curvature_measure(
-        #     list(nx.to_dict_of_lists(nx.from_edgelist(m.edges_unique)).values()),
-        #     m.face_angles_sparse.row,
-        #     m.face_angles_sparse.col,
-        #     m.face_angles_sparse.data,
-        #     m.face_adjacency,
-        #     m.face_adjacency_edges,
-        #     m.face_adjacency_unshared,
-        #     m.vertices,
-        #     m.vertex_faces,
-        #     m.area_faces,
-        # )
-        mean_curvature = my_discrete_mean_curvature_measure(self.original_mesh)
-        # old = old_my_discrete_mean_curvature_measure(self.original_mesh)
-        # print("equal?", np.array_equal(mean_curvature, old))
-        # mean_curvature[0]=np.NaN
-        print("mc", time.time() - t)
-        t = time.time()
-        gaussian_curvature = my_discrete_gaussian_curvature_measure(self.original_meqsh)
-        print("gc", time.time() - t)
-        t = time.time()
-        thickness = trimesh.proximity.thickness(
-            self.original_mesh,
-            self.original_mesh.vertices + self.original_mesh.vertex_normals * -1e-4,
-            method="ray",
+        scene = trimesh.Scene()
+
+        geom = trimesh.Trimesh(vertices=mesh.vertex_matrix(), faces=mesh.face_matrix())
+
+        print(len(geom.vertices))
+        print(len(gaussian_curvature))
+        geom.vertices = (geom.vertices - np.min(geom.vertices, axis=0)) / (
+            np.amax(geom.vertices) - np.min(geom.vertices, axis=0)
         )
-        print("th", time.time() - t)
-        t = time.time()
+        print(np.max(geom.vertices, axis=0), np.min(geom.vertices, axis=0))
+        geom.visual.vertex_colors = [0.5, 0.5, 0.5, 1.0]
+        scene.add_geometry(geom, geom_name="original_mesh")
+
+        self.original_mesh = scene.geometry["original_mesh"]
 
         self.mean_curvature = average_over_one_ring(self.original_mesh, mean_curvature)
         print("mca", time.time() - t)
@@ -406,6 +425,7 @@ class Application:
         gui.add(hbox)
 
         ## pyglet.clock.schedule_interval(self.callback, 1. / 20)
+
         pyglet.app.run()
 
     def fit(self):
