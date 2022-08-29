@@ -455,11 +455,19 @@ class Application:
         #         points=points, center=center, distance=1
         #     ),
         # )
+
         look_at = self.scene_widget1.scene.camera.look_at(
-            points=points, center=center, distance=0.5
+            points=points,
+            center=center,
+            distance=0.5,
+            rotation=self.scene_widget1.scene.camera_transform,
         )
+
         self.scene_widget1._initial_camera_transform = look_at
-        print(center, self.scene_widget1.scene.centroid)
+        # (
+        #     self.scene_widget1.scene.camera_transform
+        # )  # look_at
+        # print(center, self.scene_widget1.scene.centroid)
         self.scene_widget1.reset_view()
 
         # trackball._target =
