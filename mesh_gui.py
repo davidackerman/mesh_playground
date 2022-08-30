@@ -14,7 +14,7 @@ import trimesh.viewer
 import trimesh.transformations as tf
 import PIL.Image
 import networkx as nx
-from sklearn import svm, preprocessing
+from sklearn import svm, ensemble, preprocessing
 
 import numba
 from numba import jit
@@ -57,68 +57,6 @@ def average_over_n_ring(mesh, c, n):
         avg[vertex_id] = np.mean(c[np.unique(n_ring_vertex_ids)])
 
     return np.array(avg)
-
-
-# @jit(nopython=True)
-# def jit_my_discrete_mean_curvature_measure(
-#     g,
-#     face_angles_row,
-#     face_angles_col,
-#     face_angles_data,
-#     fa,
-#     fae,
-#     fau,
-#     vertices,
-#     vertex_faces,
-#     area_faces,
-# ):
-#     """Calculate discrete mean curvature of mesh using one-ring neighborhood."""
-
-#     # one-rings (immediate neighbors of) each vertex
-#     # g = nx.from_edgelist(edges_unique)
-
-#     # cotangents of angles and store in dictionary based on corresponding vertex and face
-#     keys = tuple(zip(face_angles_row, face_angles_col))
-#     cotangents = dict(zip(keys, 1 / np.tan(face_angles_data)))
-
-#     # discrete Laplace-Beltrami contribution of the shared edge of adjacent faces:
-#     #        /*\
-#     #       / * \
-#     #      /  *  \
-#     #    vi___*___vj
-#     #
-#     # store results in dictionary with vertex ids as keys
-#     keys = tuple(zip(fae[:, 0], fae[:, 1]))
-#     cotangent_sums = np.array(
-#         [
-#             cotangents[(v[0], fa[i][0])] + cotangents[(v[1], fa[i][1])]
-#             for i, v in enumerate(fau)
-#         ]
-#     )
-#     edge_measure = dict(
-#         zip(
-#             keys,
-#             (vertices[fae[:, 1]] - vertices[fae[:, 0]]) * cotangent_sums[:, None],
-#         )
-#     )
-
-#     # calculate mean curvature using one-ring
-#     mean_curv = [0] * len(vertices)
-#     for vertex_id, face_ids in enumerate(vertex_faces):
-#         face_ids = face_ids[face_ids != -1]  # faces associated with vertex_id
-#         one_ring = list(g[vertex_id].keys())
-#         delta_s = 0
-
-#         for one_ring_vertex_id in one_ring:
-#             if (vertex_id, one_ring_vertex_id) in edge_measure:
-#                 delta_s += edge_measure[(vertex_id, one_ring_vertex_id)]
-#             elif (one_ring_vertex_id, vertex_id) in edge_measure:
-#                 delta_s -= edge_measure[(one_ring_vertex_id, vertex_id)]
-
-#         delta_s *= 1 / (2 * np.sum(area_faces[face_ids]) / 3)  # use 1/3 of the areas
-#         mean_curv[vertex_id] = 0.5 * np.linalg.norm(delta_s)
-
-#     return np.array(mean_curv)
 
 
 def my_discrete_mean_curvature_measure(mesh):
@@ -277,28 +215,15 @@ class Application:
     def __init__(self):
         # geom = trimesh.load(str(here / "content/MPI-FAUST/meshes/tr_reg_000.ply"))
         ms = pymeshlab.MeshSet()
-        # ms.load_new_mesh("/Users/ackermand/Documents/Downloads/410_roi1.obj")
-        ms.load_new_mesh("./content/MPI-FAUST/meshes/tr_reg_050.ply")
+        ms.load_new_mesh("/Users/ackermand/Documents/Downloads/410_roi1.obj")
+        # ms.load_new_mesh("./content/MPI-FAUST/meshes/tr_reg_050.ply")
         mesh = ms.current_mesh()
         t = time.time()
         ms.meshing_repair_non_manifold_edges()
         ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=0)
-        # jit_my_discrete_mean_curvature_measure(
-        #     list(nx.to_dict_of_lists(nx.from_edgelist(m.edges_unique)).values()),
-        #     m.face_angles_sparse.row,
-        #     m.face_angles_sparse.col,
-        #     m.face_angles_sparse.data,
-        #     m.face_adjacency,
-        #     m.face_adjacency_edges,
-        #     m.face_adjacency_unshared,
-        #     m.vertices,
-        #     m.vertex_faces,
-        #     m.area_faces,
-        # )
+
         mean_curvature = mesh.vertex_scalar_array()
-        # old = old_my_discrete_mean_curvature_measure(self.original_mesh)
-        # print("equal?", np.array_equal(mean_curvature, old))
-        # mean_curvature[0]=np.NaN
+
         print("mc", time.time() - t)
         t = time.time()
         ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=1)
@@ -375,18 +300,6 @@ class Application:
         )
         print("mca", time.time() - t)
 
-        # invalids = (
-        #     np.isnan(self.mean_curvature)
-        #     | np.isinf(self.mean_curvature)
-        #     | np.isnan(self.gaussian_curvature)
-        #     | np.isinf(self.gaussian_curvature)
-        #     | np.isnan(self.thickness)
-        #     | np.isinf(self.thickness)
-        # )
-        # self.valid_vertices = {
-        #     i for i, is_invalid in enumerate(invalids) if ~is_invalid
-        # }
-        # print(len(self.original_mesh.vertices), len(self.valid_vertices))
         self.original_mesh_scaled = self.original_mesh.copy()
         self.original_mesh_scaled.vertices += (
             self.original_mesh_scaled.vertex_normals * 0.0001
@@ -395,29 +308,18 @@ class Application:
         self.scene_widget1 = trimesh.viewer.SceneWidget(scene)
         self.scene_widget1.scene.camera._fov = [45.0, 45.0]
 
-        # print(self.scene_widget1.scene.camera.resolution)
-        # self.scene_widget1.scene.camera.fov = 60 * (self.scene_widget1.scene.camera.resolution /
-        #                      self.scene_widget1.scene.camera.resolution.max())
-        # self.scene_widget1._angles = [np.deg2rad(45), 0, 0]
         hbox.add(self.scene_widget1)
 
         # scene widget for changing scene
         scene = trimesh.Scene()
-        # geom = trimesh.path.creation.box_outline((0.6, 0.6, 0.6))
-        # scene.add_geometry(geom)
+
         self.original_mesh_window2 = self.original_mesh.copy()
         self.original_mesh_window2.visual.vertex_colors = [0.5, 0.5, 0.5, 1]
         scene.add_geometry(self.original_mesh_window2, geom_name="original_mesh")
         self.scene_widget2 = trimesh.viewer.SceneWidget(scene)
         hbox.add(self.scene_widget2)
 
-        # integrate with other widget than SceneWidget
-        # self.image_widget = glooey.Image()
-        # hbox.add(self.image_widget)
-
         gui.add(hbox)
-
-        ## pyglet.clock.schedule_interval(self.callback, 1. / 20)
 
         pyglet.app.run()
 
@@ -435,6 +337,7 @@ class Application:
         return triangle_index[0]
 
     def recenter(self):
+        previous_centroid = self.scene_widget1.scene.centroid
         triangle_index = self.cursor_triangle()
         if "bounding_box_needed_for_centering" not in self.scene_widget1.scene.geometry:
             geom = trimesh.path.creation.box_outline((1000, 1000, 1000))
@@ -445,40 +348,22 @@ class Application:
         geom = self.scene_widget1.scene.geometry["bounding_box_needed_for_centering"]
         geom.vertices -= self.previous_offset
 
-        points = self.original_mesh.triangles[triangle_index]
         center = self.original_mesh.triangles_center[triangle_index]
         geom.vertices += center
         self.previous_offset = center
 
-        # self.scene_widget1.scene.camera_transform = (
-        #     self.scene_widget1.scene.camera.look_at(
-        #         points=points, center=center, distance=1
-        #     ),
-        # )
-
-        look_at = self.scene_widget1.scene.camera.look_at(
-            points=points,
-            center=center,
-            distance=0.5,
-            rotation=self.scene_widget1.scene.camera_transform,
+        self.scene_widget1.scene.camera_transform[:3, 3] += center - previous_centroid
+        self.scene_widget1._initial_camera_transform = (
+            self.scene_widget1.scene.camera_transform
         )
 
-        self.scene_widget1._initial_camera_transform = look_at
-        # (
-        #     self.scene_widget1.scene.camera_transform
-        # )  # look_at
-        # print(center, self.scene_widget1.scene.centroid)
         self.scene_widget1.reset_view()
 
-        # trackball._target =
-
-        # self.original_mesh.apply_translation(triangle_index)
-
     def fit(self):
-        self.svc = svm.SVC()
+        # self.classifier = svm.SVC()
+        self.classifier = ensemble.RandomForestClassifier()
 
         vertex_indices = list(self.vertex_indices_to_group_dict.keys())
-        print(self.mean_curvature, vertex_indices)
         groups = list(self.vertex_indices_to_group_dict.values())
         data = list(
             zip(
@@ -490,7 +375,7 @@ class Application:
         )
         self.scaler = preprocessing.StandardScaler().fit(data)
         data_transformed = self.scaler.transform(data)
-        self.svc.fit(data_transformed, groups)
+        self.classifier.fit(data_transformed, groups)
 
     def predict(self):
         test = list(
@@ -502,16 +387,12 @@ class Application:
             )
         )
         test_transformed = self.scaler.transform(test)
-        group_predictions = self.svc.predict(test_transformed)
+        group_predictions = self.classifier.predict(test_transformed)
         colors = [self.group_colors[group] for group in group_predictions]
 
-        # self.scene_widget2.scene.geometry["original_mesh"].apply_translation((-1000,-1000,-1000))
-        # self.scene_widget2.scene.delete_geometry("original_mesh")
         vertex_colors = [(0.5, 0.5, 0.5, 1.0)] * len(
             self.original_mesh_window2.vertices
         )
-        # for idx, valid_vertex in enumerate(self.valid_vertices):
-        #     vertex_colors[valid_vertex] = colors[idx]
 
         self.original_mesh_window2.visual.vertex_colors = colors  # vertex_colors
         self.scene_widget2._draw()
@@ -560,19 +441,7 @@ class Application:
             if self.key_pressed:
                 triangle_index = self.cursor_triangle()
 
-                # use_sphere = True
-                # if use_sphere:
-                #     if "cursor_sphere" in self.scene_widget1.scene.geometry:
-                #         cursor_sphere = self.scene_widget1.scene.geometry["cursor_sphere"]
-                #     else:
-                #         cursor_sphere = trimesh.creation.icosphere(radius=0.001)
-                #         cursor_sphere.visual.face_colors = (1.0,0,0,0.2)
-                #         self.scene_widget1.scene.add_geometry(cursor_sphere,geom_name="cursor_sphere")
-                #     cursor_sphere.apply_translation(-cursor_sphere.center_mass+original_mesh.triangles_center[triangle_index])
-                # else:
-                # self.scene_widget1.scene.delete_geometry("submesh")
                 redraw = False
-                # print("before",self.triangle_indices_by_group)
 
                 geom_names_to_delete = []
                 current_group = self.key_pressed
