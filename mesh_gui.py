@@ -74,24 +74,26 @@ class Application:
         t = time.time()
         ms.meshing_repair_non_manifold_edges()
         ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=0)
-
-        mean_curvature = mesh.vertex_scalar_array()
+        ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
+        self.mean_curvature = mesh.vertex_scalar_array()
 
         print("mc", time.time() - t)
         t = time.time()
         ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=1)
-        gaussian_curvature = mesh.vertex_scalar_array()
-        print(gaussian_curvature.shape)
+        ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
+        self.gaussian_curvature = mesh.vertex_scalar_array()
         print("gc", time.time() - t)
         t = time.time()
 
         ms.compute_scalar_by_shape_diameter_function_per_vertex()
-        thickness = mesh.vertex_scalar_array()
+        ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
+        self.thickness = mesh.vertex_scalar_array()
         print("th", time.time() - t)
         t = time.time()
 
         ms.compute_scalar_by_volumetric_obscurance()
-        obscurance = mesh.vertex_scalar_array()
+        ms.apply_scalar_smoothing_per_vertex()
+        self.obscurance = mesh.vertex_scalar_array()
 
         # create window with padding
         self.width, self.height = 480 * 2, 480
@@ -126,7 +128,6 @@ class Application:
         geom = trimesh.Trimesh(vertices=mesh.vertex_matrix(), faces=mesh.face_matrix())
 
         print(len(geom.vertices))
-        print(len(gaussian_curvature))
         geom.vertices = (geom.vertices - np.min(geom.vertices, axis=0)) / (
             np.amax(geom.vertices) - np.min(geom.vertices, axis=0)
         )
@@ -144,22 +145,6 @@ class Application:
         # print(scene.lights)
         t = time.time()
         self.original_mesh = scene.geometry["original_mesh"]
-        (
-            self.mean_curvature,
-            self.gaussian_curvature,
-            self.thickness,
-            self.obscurance,
-        ) = average_over_one_ring(
-            self.original_mesh,
-            (mean_curvature, gaussian_curvature, thickness, obscurance),
-        )
-        print("new mca", time.time() - t)
-        t = time.time()
-        ms.apply_scalar_smoothing_per_vertex()
-        print("old mca", time.time() - t)
-        temp = np.isclose(mesh.vertex_scalar_array(), self.obscurance) == False
-        diff = mesh.vertex_scalar_array() - self.obscurance
-        print(np.allclose(mesh.vertex_scalar_array(), self.obscurance), diff[temp])
 
         self.original_mesh_scaled = self.original_mesh.copy()
         self.original_mesh_scaled.vertices += (
