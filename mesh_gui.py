@@ -27,7 +27,9 @@ def average_over_one_ring(mesh, metrics):
         metrics = tuple(metrics)
     metrics = np.column_stack(metrics)
     g = nx.from_edgelist(mesh.edges_unique)
-
+    # t = time.time()
+    # temp = dict(nx.all_pairs_shortest_path_length(g, cutoff=5))
+    # print(time.time() - t)
     avgs = np.array(
         [
             np.mean(metrics[list(g[i].keys())][:], axis=0)
@@ -68,32 +70,38 @@ class Application:
     def __init__(self):
         # geom = trimesh.load(str(here / "content/MPI-FAUST/meshes/tr_reg_000.ply"))
         ms = pymeshlab.MeshSet()
-        ms.load_new_mesh("/Users/ackermand/Documents/Downloads/410_roi1.obj")
-        # ms.load_new_mesh("./content/MPI-FAUST/meshes/tr_reg_050.ply")
+        # ms.load_new_mesh("/Users/ackermand/Documents/Downloads/410_roi1.obj")
+        ms.load_new_mesh("./content/MPI-FAUST/meshes/tr_reg_050.ply")
         mesh = ms.current_mesh()
         t = time.time()
         ms.meshing_repair_non_manifold_edges()
+
+        self.metrics = {}
         ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=0)
-        ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
-        self.mean_curvature = mesh.vertex_scalar_array()
+        for i in range(1):
+            ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
+            # test = mesh.vertex_scalar_array()
+            # print(np.std(test), np.mean(test))
+        # test = mesh.vertex_scalar_array()
+        self.metrics["mean_curvature"] = mesh.vertex_scalar_array()
 
         print("mc", time.time() - t)
         t = time.time()
         ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=1)
         ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
-        self.gaussian_curvature = mesh.vertex_scalar_array()
+        self.metrics["gaussian_curvature"] = mesh.vertex_scalar_array()
         print("gc", time.time() - t)
         t = time.time()
 
         ms.compute_scalar_by_shape_diameter_function_per_vertex()
         ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
-        self.thickness = mesh.vertex_scalar_array()
+        self.metrics["thickness"] = mesh.vertex_scalar_array()
         print("th", time.time() - t)
         t = time.time()
 
         ms.compute_scalar_by_volumetric_obscurance()
         ms.apply_scalar_smoothing_per_vertex()
-        self.obscurance = mesh.vertex_scalar_array()
+        self.metrics["obscurance"] = mesh.vertex_scalar_array()
 
         # create window with padding
         self.width, self.height = 480 * 2, 480
@@ -139,6 +147,9 @@ class Application:
         for o in obs:
             vc.append([o, o, o, 1.0])
         geom.visual.vertex_colors = vc
+        # trimesh.visual.interpolate(
+        #     self.mean_curvature, color_map="viridis"
+        # )
 
         scene.add_geometry(geom, geom_name="original_mesh")
         # scene.lights = trimesh.scene.lighting.autolight(scene)[0]
@@ -211,34 +222,17 @@ class Application:
 
         vertex_indices = list(self.vertex_indices_to_group_dict.keys())
         groups = list(self.vertex_indices_to_group_dict.values())
-        data = list(
-            zip(
-                self.mean_curvature[vertex_indices],
-                self.gaussian_curvature[vertex_indices],
-                self.thickness[vertex_indices],
-                self.obscurance[vertex_indices],
-            )
-        )
+        data = [metric[vertex_indices] for metric in self.metrics.values()]
+        data = list(zip(*data))
         self.scaler = preprocessing.StandardScaler().fit(data)
         data_transformed = self.scaler.transform(data)
         self.classifier.fit(data_transformed, groups)
 
     def predict(self):
-        test = list(
-            zip(
-                self.mean_curvature,
-                self.gaussian_curvature,
-                self.thickness,
-                self.obscurance,
-            )
-        )
+        test = list(zip(*self.metrics.values()))
         test_transformed = self.scaler.transform(test)
         group_predictions = self.classifier.predict(test_transformed)
         colors = [self.group_colors[group] for group in group_predictions]
-
-        vertex_colors = [(0.5, 0.5, 0.5, 1.0)] * len(
-            self.original_mesh_window2.vertices
-        )
 
         self.original_mesh_window2.visual.vertex_colors = colors  # vertex_colors
         self.scene_widget2._draw()
@@ -252,6 +246,27 @@ class Application:
         except pyglet.window.NoSuchConfigException:
             config = pyglet.gl.Config(double_buffer=True)
             window = pyglet.window.Window(config=config, width=width, height=height)
+        self.display_type_label = pyglet.text.Label(
+            "Original Mesh",
+            font_size=18,
+            x=window.width // 4,
+            y=window.height // 10,
+            anchor_x="center",
+            anchor_y="center",
+            color=(0, 0, 0, 255),
+        )
+        self.center_label = pyglet.text.Label(
+            "",
+            font_size=18,
+            x=window.width // 2,
+            y=window.height * 9.5 / 10,
+            anchor_x="center",
+            anchor_y="center",
+        )
+
+        @window.event
+        def on_draw():
+            self.display_type_label.draw()
 
         @window.event
         def on_key_release(symbol, modifiers):
@@ -276,10 +291,20 @@ class Application:
                 if symbol == pyglet.window.key.C:
                     self.recenter()
                 if symbol == pyglet.window.key.P:
+                    self.center_label.text = "predicting"
                     self.fit()
-                    print("fitted")
                     self.predict()
-                    print("predicted")
+                    self.center_label.text = "predicted"
+                if symbol == pyglet.window.key.T:
+                    self.display_type_label.text = "Mean Curvature"
+                    self.original_mesh.visual.vertex_colors = (
+                        trimesh.visual.interpolate(
+                            self.metrics["mean_curvature"], color_map="viridis"
+                        )
+                    )
+                    self.scene_widget1._draw()
+
+        # )
 
         @window.event
         def on_mouse_motion(x, y, dx, dy):
@@ -291,32 +316,26 @@ class Application:
 
                 geom_names_to_delete = []
                 current_group = self.key_pressed
-                geom_name = f"{current_group}_{triangle_index}"
+                geom_name = f"{triangle_index}"
                 if triangle_index not in self.triangle_indices_to_group_dict:
                     redraw = True
+                    submesh = self.original_mesh_scaled.submesh([[triangle_index]])[0]
+                    submesh.visual.face_colors = self.group_colors[current_group]
+                    self.scene_widget1.scene.add_geometry(submesh, geom_name=geom_name)
                 else:
                     redraw = False
                     previous_group = self.triangle_indices_to_group_dict[triangle_index]
                     if previous_group != current_group:
-                        # remove previous one (have to translate otherwise it still shows up)
-                        previous_geom_name = f"{previous_group}_{triangle_index}"
                         self.scene_widget1.scene.geometry[
-                            previous_geom_name
-                        ].apply_translation((-1000, -1000, -1000))
-                        geom_names_to_delete.append(previous_geom_name)
+                            geom_name
+                        ].visual.face_colors = self.group_colors[current_group]
                         redraw = True
 
                 if redraw:
-                    # self.scene_widget1.scene.delete_geometry("original_mesh")
                     self.triangle_indices_to_group_dict[triangle_index] = current_group
                     for v in self.original_mesh.faces[triangle_index]:
                         self.vertex_indices_to_group_dict[v] = current_group
-
-                    submesh = self.original_mesh_scaled.submesh([[triangle_index]])[0]
-                    submesh.visual.face_colors = self.group_colors[current_group]
-                    self.scene_widget1.scene.add_geometry(submesh, geom_name=geom_name)
-                    self.scene_widget1._draw()
-                    self.scene_widget1.scene.delete_geometry(geom_names_to_delete)
+                        self.scene_widget1._draw()
 
         return window
 
