@@ -101,7 +101,7 @@ class Application:
 
         ms.compute_scalar_by_volumetric_obscurance()
         ms.apply_scalar_smoothing_per_vertex()
-        self.metrics["obscurance"] = mesh.vertex_scalar_array()
+        # self.metrics["obscurance"] = mesh.vertex_scalar_array()
 
         self.next_display_type_idx = 0
         # create window with padding
@@ -140,18 +140,12 @@ class Application:
         geom.vertices = (geom.vertices - np.min(geom.vertices, axis=0)) / (
             np.amax(geom.vertices) - np.min(geom.vertices, axis=0)
         )
-        print(np.max(geom.vertices, axis=0), np.min(geom.vertices, axis=0))
-        obs = mesh.vertex_scalar_array()
-        vc = []
+        obscurance = mesh.vertex_scalar_array()
 
-        obs = (obs - np.min(obs)) / (np.max(obs) - np.min(obs))
-        for o in obs:
-            vc.append([o, o, o, 1.0])
-        self.original_mesh_colors = vc
-        geom.visual.vertex_colors = vc
-        # trimesh.visual.interpolate(
-        #     self.mean_curvature, color_map="viridis"
-        # )
+        self.original_mesh_colors = trimesh.visual.interpolate(
+            obscurance, color_map="gray"
+        )
+        geom.visual.vertex_colors = self.original_mesh_colors
 
         scene.add_geometry(geom, geom_name="original_mesh")
         # scene.lights = trimesh.scene.lighting.autolight(scene)[0]
@@ -309,9 +303,13 @@ class Application:
                             self.next_display_type_idx
                         ]
                         self.display_type_label.text = display_type
+                        metric = self.metrics[display_type]
                         self.original_mesh.visual.vertex_colors = (
                             trimesh.visual.interpolate(
-                                self.metrics[display_type], color_map="viridis"
+                                metric.clip(
+                                    np.percentile(metric, 10), np.percentile(metric, 90)
+                                ),
+                                color_map="viridis",
                             )
                         )
                         self.next_display_type_idx += 1
