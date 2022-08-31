@@ -103,6 +103,7 @@ class Application:
         ms.apply_scalar_smoothing_per_vertex()
         self.metrics["obscurance"] = mesh.vertex_scalar_array()
 
+        self.next_display_type_idx = 0
         # create window with padding
         self.width, self.height = 480 * 2, 480
         self.mouse_pos = 0, 0
@@ -146,6 +147,7 @@ class Application:
         obs = (obs - np.min(obs)) / (np.max(obs) - np.min(obs))
         for o in obs:
             vc.append([o, o, o, 1.0])
+        self.original_mesh_colors = vc
         geom.visual.vertex_colors = vc
         # trimesh.visual.interpolate(
         #     self.mean_curvature, color_map="viridis"
@@ -296,12 +298,23 @@ class Application:
                     self.predict()
                     self.center_label.text = "predicted"
                 if symbol == pyglet.window.key.T:
-                    self.display_type_label.text = "Mean Curvature"
-                    self.original_mesh.visual.vertex_colors = (
-                        trimesh.visual.interpolate(
-                            self.metrics["mean_curvature"], color_map="viridis"
+                    if self.next_display_type_idx == len(self.metrics):
+                        self.next_display_type_idx = 0
+                        self.display_type_label.text = "Original Mesh"
+                        self.original_mesh.visual.vertex_colors = (
+                            self.original_mesh_colors
                         )
-                    )
+                    else:
+                        display_type = list(self.metrics.keys())[
+                            self.next_display_type_idx
+                        ]
+                        self.display_type_label.text = display_type
+                        self.original_mesh.visual.vertex_colors = (
+                            trimesh.visual.interpolate(
+                                self.metrics[display_type], color_map="viridis"
+                            )
+                        )
+                        self.next_display_type_idx += 1
                     self.scene_widget1._draw()
 
         # )
@@ -311,10 +324,7 @@ class Application:
             self.mouse_pos = x, y
             if self.key_pressed:
                 triangle_index = self.cursor_triangle()
-
                 redraw = False
-
-                geom_names_to_delete = []
                 current_group = self.key_pressed
                 geom_name = f"{triangle_index}"
                 if triangle_index not in self.triangle_indices_to_group_dict:
