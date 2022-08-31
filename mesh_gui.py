@@ -2,7 +2,6 @@
 Glooey widget example. Only runs with python>=3.6 (because of Glooey).
 """
 
-import io
 import pathlib
 import time
 import glooey
@@ -11,8 +10,6 @@ import pyglet
 
 import trimesh
 import trimesh.viewer
-import trimesh.transformations as tf
-import PIL.Image
 import networkx as nx
 from sklearn import svm, ensemble, preprocessing
 
@@ -20,22 +17,25 @@ import numba
 from numba import jit
 from numba.typed import Dict
 import pymeshlab
+from scipy.sparse import csc_matrix
 
 here = pathlib.Path(__file__).resolve().parent
 
 
 def average_over_one_ring(mesh, metrics):
     if type(metrics) is not list:
-        metrics = [metrics]
+        metrics = tuple(metrics)
+    metrics = np.column_stack(metrics)
     g = nx.from_edgelist(mesh.edges_unique)
-    one_rings = [list(g[i].keys()) for i in range(len(mesh.vertices))]
 
-    avgs = [np.zeros_like(metric) for metric in metrics]
-    for current_avg, current_metric in zip(avgs, metrics):
-        for vertex_id in range(len(mesh.vertices)):
-            current_avg[vertex_id] = np.mean(current_metric[one_rings[vertex_id]])
+    avgs = np.array(
+        [
+            np.mean(metrics[list(g[i].keys())][:], axis=0)
+            for i in range(len(mesh.vertices))
+        ]
+    )
 
-    return avgs
+    return [avgs[:, col] for col in range(avgs.shape[1])]
 
 
 def average_over_n_ring(mesh, c, n):
@@ -57,153 +57,6 @@ def average_over_n_ring(mesh, c, n):
         avg[vertex_id] = np.mean(c[np.unique(n_ring_vertex_ids)])
 
     return np.array(avg)
-
-
-def my_discrete_mean_curvature_measure(mesh):
-    """Calculate discrete mean curvature of mesh using one-ring neighborhood."""
-
-    # one-rings (immediate neighbors of) each vertex
-    g = nx.from_edgelist(mesh.edges_unique)
-
-    # cotangents of angles and store in dictionary based on corresponding vertex and face
-    face_angles = mesh.face_angles_sparse
-    keys = tuple(zip(face_angles.row, face_angles.col))
-    cotangents = dict(zip(keys, 1 / np.tan(face_angles.data)))
-
-    # discrete Laplace-Beltrami contribution of the shared edge of adjacent faces:
-    #        /*\
-    #       / * \
-    #      /  *  \
-    #    vi___*___vj
-    #
-    # store results in dictionary with vertex ids as keys
-    fa = mesh.face_adjacency
-    fae = mesh.face_adjacency_edges
-    keys = tuple(zip(fae[:, 0], fae[:, 1]))
-    cotangent_sums = np.array(
-        [
-            cotangents[(v[0], fa[i][0])] + cotangents[(v[1], fa[i][1])]
-            for i, v in enumerate(mesh.face_adjacency_unshared)
-        ]
-    )
-    edge_measure = dict(
-        zip(
-            keys,
-            (mesh.vertices[fae[:, 1]] - mesh.vertices[fae[:, 0]])
-            * cotangent_sums[:, None],
-        )
-    )
-
-    # calculate mean curvature using one-ring
-    mean_curv = [0] * len(mesh.vertices)
-    for vertex_id, face_ids in enumerate(mesh.vertex_faces):
-        face_ids = face_ids[face_ids != -1]  # faces associated with vertex_id
-        one_ring = list(g[vertex_id].keys())
-        delta_s = 0
-
-        for one_ring_vertex_id in one_ring:
-            if (vertex_id, one_ring_vertex_id) in edge_measure:
-                delta_s += edge_measure[(vertex_id, one_ring_vertex_id)]
-            elif (one_ring_vertex_id, vertex_id) in edge_measure:
-                delta_s -= edge_measure[(one_ring_vertex_id, vertex_id)]
-
-        delta_s *= 1 / (
-            2 * np.sum(mesh.area_faces[face_ids]) / 3
-        )  # use 1/3 of the areas
-        mean_curv[vertex_id] = 0.5 * np.linalg.norm(delta_s)
-
-    return np.array(mean_curv)
-
-
-def old_my_discrete_mean_curvature_measure(mesh):
-    """Calculate discrete mean curvature of mesh using one-ring neighborhood."""
-
-    # one-rings (immediate neighbors of) each vertex
-    t = time.time()
-    g = nx.from_edgelist(mesh.edges_unique)
-    one_rings = [list(g[i].keys()) for i in range(len(mesh.vertices))]
-    print("inside", time.time() - t)
-    t = time.time()
-
-    # cotangents of angles and store in dictionary based on corresponding vertex and face
-
-    print("inside 3", time.time() - t)
-    t = time.time()
-    face_angles = mesh.face_angles_sparse
-    cotangents = {
-        f"{vertex},{face}": 1 / np.tan(angle)
-        for vertex, face, angle in zip(
-            face_angles.row, face_angles.col, face_angles.data
-        )
-    }
-    print("inside 4", time.time() - t)
-    t = time.time()
-    # discrete Laplace-Beltrami contribution of the shared edge of adjacent faces:
-    #        /*\
-    #       / * \
-    #      /  *  \
-    #    vi___*___vj
-    #
-    # store results in dictionary with vertex ids as keys
-    fa = mesh.face_adjacency
-    fae = mesh.face_adjacency_edges
-    edge_measure = {
-        f"{fae[i][0]},{fae[i][1]}": (
-            mesh.vertices[fae[i][1]] - mesh.vertices[fae[i][0]]
-        )
-        * (cotangents[f"{v[0]},{fa[i][0]}"] + cotangents[f"{v[1]},{fa[i][1]}"])
-        for i, v in enumerate(mesh.face_adjacency_unshared)
-    }
-    # calculate mean curvature using one-ring
-    mean_curv = [0] * len(mesh.vertices)
-    for vertex_id, face_ids in enumerate(mesh.vertex_faces):
-        face_ids = face_ids[face_ids != -1]  # faces associated with vertex_id
-        one_ring = one_rings[vertex_id]
-        delta_s = 0
-
-        for one_ring_vertex_id in one_ring:
-            if f"{vertex_id},{one_ring_vertex_id}" in edge_measure:
-                delta_s += edge_measure[f"{vertex_id},{one_ring_vertex_id}"]
-            elif f"{one_ring_vertex_id},{vertex_id}" in edge_measure:
-                delta_s -= edge_measure[f"{one_ring_vertex_id},{vertex_id}"]
-
-        delta_s *= 1 / (
-            2 * np.sum(mesh.area_faces[face_ids]) / 3
-        )  # use 1/3 of the areas
-        mean_curv[vertex_id] = 0.5 * np.linalg.norm(delta_s)
-
-    return np.array(mean_curv)
-
-
-def my_discrete_gaussian_curvature_measure(mesh):
-    """
-    Return the discrete gaussian curvature measure of a sphere centered
-    at a point as detailed in 'Restricted Delaunay triangulations and normal
-    cycle', Cohen-Steiner and Morvan.
-    Parameters
-    ----------
-    points : (n,3) float, list of points in space
-    radius : float, the sphere radius
-    Returns
-    --------
-    gaussian_curvature: (n,) float, discrete gaussian curvature measure.
-    """
-
-    g = nx.from_edgelist(mesh.edges_unique)
-    # nearest = mesh.kdtree.query_ball_point(points, radius)
-    one_ring = [list(g[i].keys()) for i in range(len(mesh.vertices))]
-
-    # FACTOR OF 3 since using 1/3 area?
-    gauss_curv = [
-        3
-        * mesh.vertex_defects[vertex]
-        / mesh.area_faces[
-            mesh.vertex_faces[vertex][mesh.vertex_faces[vertex] != -1]
-        ].sum()
-        for vertex in range(len(mesh.vertices))
-    ]
-
-    return np.asarray(gauss_curv)
 
 
 class Application:
@@ -228,6 +81,7 @@ class Application:
         t = time.time()
         ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=1)
         gaussian_curvature = mesh.vertex_scalar_array()
+        print(gaussian_curvature.shape)
         print("gc", time.time() - t)
         t = time.time()
 
@@ -288,6 +142,7 @@ class Application:
         scene.add_geometry(geom, geom_name="original_mesh")
         # scene.lights = trimesh.scene.lighting.autolight(scene)[0]
         # print(scene.lights)
+        t = time.time()
         self.original_mesh = scene.geometry["original_mesh"]
         (
             self.mean_curvature,
@@ -296,9 +151,15 @@ class Application:
             self.obscurance,
         ) = average_over_one_ring(
             self.original_mesh,
-            [mean_curvature, gaussian_curvature, thickness, obscurance],
+            (mean_curvature, gaussian_curvature, thickness, obscurance),
         )
-        print("mca", time.time() - t)
+        print("new mca", time.time() - t)
+        t = time.time()
+        ms.apply_scalar_smoothing_per_vertex()
+        print("old mca", time.time() - t)
+        temp = np.isclose(mesh.vertex_scalar_array(), self.obscurance) == False
+        diff = mesh.vertex_scalar_array() - self.obscurance
+        print(np.allclose(mesh.vertex_scalar_array(), self.obscurance), diff[temp])
 
         self.original_mesh_scaled = self.original_mesh.copy()
         self.original_mesh_scaled.vertices += (
