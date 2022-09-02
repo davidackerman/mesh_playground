@@ -93,6 +93,7 @@ class Application:
         ms.compute_scalar_by_shape_diameter_function_per_vertex()
         self.metrics["thickness"] = mesh.vertex_scalar_array()
         self.laplacian_smooth(ms, mesh, "thickness_curvature", smoothing_iterations)
+
         print("th", time.time() - t)
         t = time.time()
 
@@ -149,7 +150,7 @@ class Application:
         # self.mesh = scene.geometry["mesh"]
 
         self.widgets = []
-        self.widgets.append(trimesh.viewer.SceneWidget(scene))
+        self.widgets.append(trimesh.viewer.SceneWidget(scene, smooth=False))
         self.widgets[0].scene.camera._fov = [45.0, 45.0]
         self.widgets[0].mesh = geom
         self.widgets[0].mesh_scaled = self.widgets[0].mesh.copy()
@@ -166,12 +167,14 @@ class Application:
         mesh_copy = self.widgets[0].mesh.copy()
         scene = trimesh.Scene()
         scene.add_geometry(mesh_copy, geom_name="mesh")
-        self.widgets.append(trimesh.viewer.SceneWidget(scene))
+        self.widgets.append(trimesh.viewer.SceneWidget(scene, smooth=False))
         self.widgets[1].mesh = mesh_copy
         self.widgets[1].mesh.visual.vertex_colors = self.mesh_colors
         hbox.add(self.widgets[1])
 
         gui.add(hbox)
+
+        self.average_metrics_over_faces()
 
         pyglet.app.run()
 
@@ -180,6 +183,12 @@ class Application:
             if iteration in smoothing_iterations:
                 self.metrics[f"{metric}_{iteration}"] = mesh.vertex_scalar_array()
             ms.apply_scalar_smoothing_per_vertex()
+
+    def average_metrics_over_faces(self):
+        faces = self.widgets[0].mesh.faces.flatten()
+        for metric_name in self.metrics:
+            metric = self.metrics[metric_name]
+            self.metrics[metric_name] = np.mean(metric[faces].reshape((-1, 3)), axis=1)
 
     def cursor_triangle(self):
         self.get_current_widget()
@@ -208,9 +217,9 @@ class Application:
         self.current_widget = current_widget
 
     def recenter(self):
-        previous_centroid = self.current_widget.scene.centroid
         triangle_index = self.cursor_triangle()
         current_widget = self.current_widget
+        previous_centroid = current_widget.scene.centroid
         if "bounding_box_needed_for_centering" not in current_widget.scene.geometry:
             geom = trimesh.path.creation.box_outline((1000, 1000, 1000))
             current_widget.scene.add_geometry(
@@ -233,9 +242,9 @@ class Application:
         # self.classifier = svm.SVC()
         # self.classifier = ensemble.RandomForestClassifier()
         self.classifier = MLPClassifier(alpha=1, max_iter=1000)
-        vertex_indices = list(self.vertex_indices_to_group_dict.keys())
-        groups = list(self.vertex_indices_to_group_dict.values())
-        data = [metric[vertex_indices] for metric in self.metrics.values()]
+        faces = list(self.triangle_indices_to_group_dict.keys())
+        groups = list(self.triangle_indices_to_group_dict.values())
+        data = [metric[faces] for metric in self.metrics.values()]
         data = list(zip(*data))
         self.scaler = preprocessing.StandardScaler().fit(data)
         data_transformed = self.scaler.transform(data)
@@ -247,7 +256,7 @@ class Application:
         group_predictions = self.classifier.predict(test_transformed)
         colors = [self.group_colors[group] for group in group_predictions]
 
-        self.widgets[1].mesh.visual.vertex_colors = colors  # vertex_colors
+        self.widgets[1].mesh.visual.face_colors = colors  # vertex_colors
         self.widgets[1]._draw()
 
     def _create_window(self, width, height):
@@ -312,14 +321,16 @@ class Application:
                     if self.next_display_type_idx == len(self.metrics):
                         self.next_display_type_idx = 0
                         self.display_type_label.text = "Original Mesh"
-                        self.mesh.visual.vertex_colors = self.mesh_colors
+                        self.widgets[0].mesh.visual.vertex_colors = self.mesh_colors
                     else:
                         display_type = list(self.metrics.keys())[
                             self.next_display_type_idx
                         ]
                         self.display_type_label.text = display_type
                         metric = self.metrics[display_type]
-                        self.mesh.visual.vertex_colors = trimesh.visual.interpolate(
+                        self.widgets[
+                            0
+                        ].mesh.visual.face_colors = trimesh.visual.interpolate(
                             metric.clip(
                                 np.percentile(metric, 10), np.percentile(metric, 90)
                             ),
@@ -356,7 +367,7 @@ class Application:
                     self.triangle_indices_to_group_dict[triangle_index] = current_group
                     for v in self.widgets[0].mesh.faces[triangle_index]:
                         self.vertex_indices_to_group_dict[v] = current_group
-                        self.widgets[0]._draw()
+                    self.widgets[0]._draw()
 
         # @window.event
         # def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
