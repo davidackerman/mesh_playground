@@ -12,12 +12,14 @@ import trimesh
 import trimesh.viewer
 import networkx as nx
 from sklearn import svm, ensemble, preprocessing
+from sklearn.neural_network import MLPClassifier
 
 import numba
 from numba import jit
 from numba.typed import Dict
 import pymeshlab
 from scipy.sparse import csc_matrix
+
 
 here = pathlib.Path(__file__).resolve().parent
 
@@ -71,31 +73,26 @@ class Application:
         # geom = trimesh.load(str(here / "content/MPI-FAUST/meshes/tr_reg_000.ply"))
         ms = pymeshlab.MeshSet()
         # ms.load_new_mesh("/Users/ackermand/Documents/Downloads/410_roi1.obj")
-        ms.load_new_mesh("./content/MPI-FAUST/meshes/tr_reg_050.ply")
+        ms.load_new_mesh("./content/MPI-FAUST/meshes/tr_reg_000.ply")
         mesh = ms.current_mesh()
         t = time.time()
         ms.meshing_repair_non_manifold_edges()
-
         self.metrics = {}
         ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=0)
-        for i in range(1):
-            ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
-            # test = mesh.vertex_scalar_array()
-            # print(np.std(test), np.mean(test))
-        # test = mesh.vertex_scalar_array()
-        self.metrics["mean_curvature"] = mesh.vertex_scalar_array()
+
+        smoothing_iterations = [0, 1, 5, 10]
+        self.laplacian_smooth(ms, mesh, "mean_curvature", smoothing_iterations)
 
         print("mc", time.time() - t)
         t = time.time()
         ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=1)
-        ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
-        self.metrics["gaussian_curvature"] = mesh.vertex_scalar_array()
+        self.laplacian_smooth(ms, mesh, "gaussian_curvature", smoothing_iterations)
         print("gc", time.time() - t)
         t = time.time()
 
         ms.compute_scalar_by_shape_diameter_function_per_vertex()
-        ms.apply_scalar_smoothing_per_vertex()  # laplacian smooth
         self.metrics["thickness"] = mesh.vertex_scalar_array()
+        self.laplacian_smooth(ms, mesh, "thickness_curvature", smoothing_iterations)
         print("th", time.time() - t)
         t = time.time()
 
@@ -142,80 +139,100 @@ class Application:
         )
         obscurance = mesh.vertex_scalar_array()
 
-        self.original_mesh_colors = trimesh.visual.interpolate(
-            obscurance, color_map="gray"
-        )
-        geom.visual.vertex_colors = self.original_mesh_colors
+        self.mesh_colors = trimesh.visual.interpolate(obscurance, color_map="gray")
+        geom.visual.vertex_colors = self.mesh_colors
 
-        scene.add_geometry(geom, geom_name="original_mesh")
+        scene.add_geometry(geom, geom_name="mesh")
         # scene.lights = trimesh.scene.lighting.autolight(scene)[0]
         # print(scene.lights)
         t = time.time()
-        self.original_mesh = scene.geometry["original_mesh"]
+        # self.mesh = scene.geometry["mesh"]
 
-        self.original_mesh_scaled = self.original_mesh.copy()
-        self.original_mesh_scaled.vertices += (
-            self.original_mesh_scaled.vertex_normals * 0.0001
+        self.widgets = []
+        self.widgets.append(trimesh.viewer.SceneWidget(scene))
+        self.widgets[0].scene.camera._fov = [45.0, 45.0]
+        self.widgets[0].mesh = geom
+        self.widgets[0].mesh_scaled = self.widgets[0].mesh.copy()
+        self.widgets[0].mesh_scaled.vertices += (
+            self.widgets[0].mesh_scaled.vertex_normals * 0.00001
         )
-        self.triangle_group_assignments = [] * len(self.original_mesh_scaled.faces)
-        self.scene_widget1 = trimesh.viewer.SceneWidget(scene)
-        self.scene_widget1.scene.camera._fov = [45.0, 45.0]
+        self.widgets[0].triangle_group_assignments = [] * len(
+            self.widgets[0].mesh_scaled.faces
+        )
 
-        hbox.add(self.scene_widget1)
+        hbox.add(self.widgets[0])
 
         # scene widget for changing scene
+        mesh_copy = self.widgets[0].mesh.copy()
         scene = trimesh.Scene()
-
-        self.original_mesh_window2 = self.original_mesh.copy()
-        self.original_mesh_window2.visual.vertex_colors = [0.5, 0.5, 0.5, 1]
-        scene.add_geometry(self.original_mesh_window2, geom_name="original_mesh")
-        self.scene_widget2 = trimesh.viewer.SceneWidget(scene)
-        hbox.add(self.scene_widget2)
+        scene.add_geometry(mesh_copy, geom_name="mesh")
+        self.widgets.append(trimesh.viewer.SceneWidget(scene))
+        self.widgets[1].mesh = mesh_copy
+        self.widgets[1].mesh.visual.vertex_colors = self.mesh_colors
+        hbox.add(self.widgets[1])
 
         gui.add(hbox)
 
         pyglet.app.run()
 
+    def laplacian_smooth(self, ms, mesh, metric, smoothing_iterations):
+        for iteration in range(max(smoothing_iterations) + 1):
+            if iteration in smoothing_iterations:
+                self.metrics[f"{metric}_{iteration}"] = mesh.vertex_scalar_array()
+            ms.apply_scalar_smoothing_per_vertex()
+
     def cursor_triangle(self):
+        self.get_current_widget()
         x, y = self.mouse_pos
-        origins, vectors, _ = self.scene_widget1.scene.camera_rays()
-        resolution = self.scene_widget1.scene.camera.resolution
-        x_in_scene, y_in_scene = x - self.padding, y - self.padding
+        origins, vectors, _ = self.current_widget.scene.camera_rays()
+        resolution = self.current_widget.scene.camera.resolution
+        left = self.current_widget.rect.left
+        bottom = self.current_widget.rect.bottom
+        x_in_scene, y_in_scene = x - left - self.padding, y - bottom - self.padding
         idx = x_in_scene * resolution[1] + ((resolution[1] - 1) - y_in_scene)
         current_origin, current_vector = origins[idx], vectors[idx]
-        # try:
-        _, _, triangle_index = self.original_mesh.ray.intersects_location(
+        _, _, triangle_index = self.current_widget.mesh.ray.intersects_location(
             [current_origin], [current_vector], multiple_hits=False
         )
         return triangle_index[0]
 
+    def get_current_widget(self):
+        x, y = self.mouse_pos
+        for current_widget in self.widgets:
+            left = current_widget.rect.left
+            bottom = current_widget.rect.bottom
+            width = current_widget.rect.width
+            height = current_widget.rect.height
+            if (left < x <= left + width) and (bottom < y <= bottom + height):
+                break
+        self.current_widget = current_widget
+
     def recenter(self):
-        previous_centroid = self.scene_widget1.scene.centroid
+        previous_centroid = self.current_widget.scene.centroid
         triangle_index = self.cursor_triangle()
-        if "bounding_box_needed_for_centering" not in self.scene_widget1.scene.geometry:
+        current_widget = self.current_widget
+        if "bounding_box_needed_for_centering" not in current_widget.scene.geometry:
             geom = trimesh.path.creation.box_outline((1000, 1000, 1000))
-            self.scene_widget1.scene.add_geometry(
+            current_widget.scene.add_geometry(
                 geom, geom_name="bounding_box_needed_for_centering"
             )
-            self.previous_offset = 0, 0, 0
-        geom = self.scene_widget1.scene.geometry["bounding_box_needed_for_centering"]
-        geom.vertices -= self.previous_offset
+            current_widget.previous_offset = 0, 0, 0
+        geom = current_widget.scene.geometry["bounding_box_needed_for_centering"]
+        geom.vertices -= current_widget.previous_offset
 
-        center = self.original_mesh.triangles_center[triangle_index]
+        center = current_widget.mesh.triangles_center[triangle_index]
         geom.vertices += center
-        self.previous_offset = center
+        current_widget.previous_offset = center
 
-        self.scene_widget1.scene.camera_transform[:3, 3] += center - previous_centroid
-        self.scene_widget1._initial_camera_transform = (
-            self.scene_widget1.scene.camera_transform
-        )
+        current_widget.scene.camera_transform[:3, 3] += center - previous_centroid
+        current_widget._initial_camera_transform = current_widget.scene.camera_transform
 
-        self.scene_widget1.reset_view()
+        current_widget.reset_view()
 
     def fit(self):
         # self.classifier = svm.SVC()
-        self.classifier = ensemble.RandomForestClassifier()
-
+        # self.classifier = ensemble.RandomForestClassifier()
+        self.classifier = MLPClassifier(alpha=1, max_iter=1000)
         vertex_indices = list(self.vertex_indices_to_group_dict.keys())
         groups = list(self.vertex_indices_to_group_dict.values())
         data = [metric[vertex_indices] for metric in self.metrics.values()]
@@ -230,8 +247,8 @@ class Application:
         group_predictions = self.classifier.predict(test_transformed)
         colors = [self.group_colors[group] for group in group_predictions]
 
-        self.original_mesh_window2.visual.vertex_colors = colors  # vertex_colors
-        self.scene_widget2._draw()
+        self.widgets[1].mesh.visual.vertex_colors = colors  # vertex_colors
+        self.widgets[1]._draw()
 
     def _create_window(self, width, height):
         try:
@@ -295,25 +312,21 @@ class Application:
                     if self.next_display_type_idx == len(self.metrics):
                         self.next_display_type_idx = 0
                         self.display_type_label.text = "Original Mesh"
-                        self.original_mesh.visual.vertex_colors = (
-                            self.original_mesh_colors
-                        )
+                        self.mesh.visual.vertex_colors = self.mesh_colors
                     else:
                         display_type = list(self.metrics.keys())[
                             self.next_display_type_idx
                         ]
                         self.display_type_label.text = display_type
                         metric = self.metrics[display_type]
-                        self.original_mesh.visual.vertex_colors = (
-                            trimesh.visual.interpolate(
-                                metric.clip(
-                                    np.percentile(metric, 10), np.percentile(metric, 90)
-                                ),
-                                color_map="viridis",
-                            )
+                        self.mesh.visual.vertex_colors = trimesh.visual.interpolate(
+                            metric.clip(
+                                np.percentile(metric, 10), np.percentile(metric, 90)
+                            ),
+                            color_map="viridis",
                         )
                         self.next_display_type_idx += 1
-                    self.scene_widget1._draw()
+                    self.widgets[0]._draw()
 
         # )
 
@@ -327,23 +340,52 @@ class Application:
                 geom_name = f"{triangle_index}"
                 if triangle_index not in self.triangle_indices_to_group_dict:
                     redraw = True
-                    submesh = self.original_mesh_scaled.submesh([[triangle_index]])[0]
+                    submesh = self.widgets[0].mesh_scaled.submesh([[triangle_index]])[0]
                     submesh.visual.face_colors = self.group_colors[current_group]
-                    self.scene_widget1.scene.add_geometry(submesh, geom_name=geom_name)
+                    self.widgets[0].scene.add_geometry(submesh, geom_name=geom_name)
                 else:
                     redraw = False
                     previous_group = self.triangle_indices_to_group_dict[triangle_index]
                     if previous_group != current_group:
-                        self.scene_widget1.scene.geometry[
+                        self.widgets[0].scene.geometry[
                             geom_name
                         ].visual.face_colors = self.group_colors[current_group]
                         redraw = True
 
                 if redraw:
                     self.triangle_indices_to_group_dict[triangle_index] = current_group
-                    for v in self.original_mesh.faces[triangle_index]:
+                    for v in self.widgets[0].mesh.faces[triangle_index]:
                         self.vertex_indices_to_group_dict[v] = current_group
-                        self.scene_widget1._draw()
+                        self.widgets[0]._draw()
+
+        # @window.event
+        # def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
+        #     x_prev = x - dx
+        #     y_prev = y - dy
+        #     left, bottom = self.widgets[0].rect.left, self.widgets[0].rect.bottom
+        #     width, height = (
+        #         self.widgets[0].rect.width,
+        #         self.widgets[0].rect.height,
+        #     )
+        #     if not (left < x_prev <= left + width) or not (
+        #         bottom < y_prev <= bottom + height
+        #     ):
+        #         print("w1", x, x_prev, y, y_prev)
+        #     left, bottom = self.widgets[1].rect.left, self.widgets[1].rect.bottom
+        #     width, height = (
+        #         self.widgets[1].rect.width,
+        #         self.widgets[1].rect.height,
+        #     )
+        #     if not (left < x_prev <= left + width) or not (
+        #         bottom < y_prev <= bottom + height
+        #     ):
+        #         print("w2", x, x_prev, y, y_prev)
+
+        #     print(
+        #         self.widgets[0].view["ball"]._pdown,
+        #         self.widgets[0].view["ball"]._pose,
+        #         self.widgets[0].view["ball"]._target,
+        #     )
 
         return window
 
