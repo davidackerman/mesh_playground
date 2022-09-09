@@ -26,8 +26,6 @@ class MeshProcessor:
         self.min_branch_length = min_branch_length
         self.use_skeletons = use_skeletons
 
-    dask.delayed
-
     def get_mesh(self, id):
         def unpack_and_remove(datatype, num_elements, file_content):
             datatype = datatype * num_elements
@@ -106,62 +104,87 @@ class MeshProcessor:
                         + vertices / (2**vertex_quantization_bits - 1)
                     )
                 )
-
+                # _ = trimesh.Trimesh(vertices, faces, process=False).export(
+                #     f"{id}_{idx}.ply"
+                # )
                 all_faces = np.concatenate(
                     (all_faces, faces + all_vertices.shape[0]), axis=0
                 )
                 all_vertices = np.concatenate((all_vertices, vertices), axis=0)
-        
+        # mesh = trimesh.Trimesh(all_vertices, all_faces)
+        # mesh.remove_duplicate_faces()
+        # _ = mesh.export(f"{id}.ply")
+        # while not mesh.is_watertight:
+        #    mesh.fill_holes
         ms = pymeshlab.MeshSet()
-        # all_vertices -= np.mean(all_vertices, axis=0)
+        # # all_vertices -= np.mean(all_vertices, axis=0)
 
         m = pymeshlab.Mesh(all_vertices, all_faces)
         ms.add_mesh(m)
         ms.save_current_mesh(f"{id}.ply")
         ms.meshing_remove_duplicate_vertices()
-        # ms.meshing_merge_close_vertices(
-        #     threshold=pymeshlab.Percentage(
-        #         (5 / ms.current_mesh().bounding_box().diagonal()) * 10000,
-        #     )
-        # )  # meshing_remove_duplicate_vertices()  #
+        # # ms.meshing_merge_close_vertices(
+        # #     threshold=pymeshlab.Percentage(
+        # #         (5 / ms.current_mesh().bounding_box().diagonal()) * 10000,
+        # #     )
+        # # )  # meshing_remove_duplicate_vertices()  #
         ms.meshing_remove_duplicate_faces()
-        # mesh = trimesh.Trimesh(all_vertices, all_faces, process=False)
-        # _ = mesh.export(f"{id}.obj")
-
-        measures = ms.apply_filter("get_topological_measures")
-        while measures["number_holes"] != 0:
-            ms.meshing_repair_non_manifold_edges()  # sometimes this still has nonmanifold vertices
-            ms.meshing_repair_non_manifold_vertices(vertdispratio=0.01)
-            # not sure why this doesn't work on first try even though it does in ui
-            ms.meshing_close_holes(maxholesize=measures["boundary_edges"] + 1)
-            measures = ms.apply_filter("get_topological_measures")
-        return ms
+        # # mesh = trimesh.Trimesh(all_vertices, all_faces, process=False)
+        # # _ = mesh.export(f"{id}.obj")
+        # ms.save_current_mesh(f"{id}.ply")
+        # measures = ms.apply_filter("get_topological_measures")
+        # if measures["number_holes"] != 0:
+        ms.meshing_repair_non_manifold_edges(
+            method="Split Vertices"
+        )  # sometimes this still has nonmanifold vertices
+        #     ms.meshing_repair_non_manifold_vertices(vertdispratio=0.01)
+        #     # not sure why this doesn't work on first try even though it does in ui
+        # measures = ms.apply_filter("get_topological_measures")
+        # ms.meshing_close_holes(maxholesize=measures["boundary_edges"] + 1)
+        mesh = trimesh.Trimesh(
+            ms.current_mesh().vertex_matrix(), ms.current_mesh().face_matrix()
+        )
+        # measures = ms.apply_filter("get_topological_measures")
+        return mesh
 
     @dask.delayed
     def process_mesh(self, id):
         os.system(f"touch {id}.txt")
-        ms = self.get_mesh(id)
+        mesh = self.get_mesh(id)
         # calculate gneral mesh properties
         metrics = {"id": id}
-        measures = ms.apply_filter("get_geometric_measures")
-        metrics["volume"] = measures["mesh_volume"]
-        metrics["surface_area"] = measures["surface_area"]
-        axis_momenta_normalized = measures["axis_momenta"] / np.sum(
-            measures["axis_momenta"]
+        metrics["volume"] = mesh.volume
+        metrics["surface_area"] = mesh.area
+        principal_inertia_components = mesh.principal_inertia_components
+        principal_inertia_components_normalized = principal_inertia_components / np.sum(
+            principal_inertia_components
         )
         for axis in range(3):
-            metrics[f"axis_momenta_{axis}"] = measures["axis_momenta"][axis]
-            metrics[f"axis_momenta_normalized_{axis}"] = axis_momenta_normalized[axis]
+            metrics[
+                f"principal_inertia_component_{axis}"
+            ] = principal_inertia_components[axis]
+            metrics[
+                f"principal_inertia_component_normalized_{axis}"
+            ] = principal_inertia_components_normalized[axis]
+        # for axis in range(3):
+        #     metrics[f"axis_momenta_{axis}"] = measures["axis_momenta"][axis]
+        #     metrics[f"axis_momenta_normalized_{axis}"] = axis_momenta_normalized[axis]
+        # measures = ms.apply_filter("get_geometric_measures")
+        # metrics["volume"] = measures["mesh_volume"]
+        # metrics["surface_area"] = measures["surface_area"]
+        # axis_momenta_normalized = measures["axis_momenta"] / np.sum(
+        #     measures["axis_momenta"]
+        # )
+        # for axis in range(3):
+        #     metrics[f"axis_momenta_{axis}"] = measures["axis_momenta"][axis]
+        #     metrics[f"axis_momenta_normalized_{axis}"] = axis_momenta_normalized[axis]
 
         if self.use_skeletons:
             # calculate metrics using navis
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 skeleton = sk.skeletonize.by_wavefront(
-                    (
-                        ms.current_mesh().vertex_matrix(),
-                        ms.current_mesh().face_matrix(),
-                    ),
+                    mesh,
                     waves=1,
                     step_size=2,
                     progress=False,

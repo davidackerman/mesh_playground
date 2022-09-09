@@ -24,45 +24,6 @@ from scipy.sparse import csc_matrix
 here = pathlib.Path(__file__).resolve().parent
 
 
-def average_over_one_ring(mesh, metrics):
-    if type(metrics) is not list:
-        metrics = tuple(metrics)
-    metrics = np.column_stack(metrics)
-    g = nx.from_edgelist(mesh.edges_unique)
-    # t = time.time()
-    # temp = dict(nx.all_pairs_shortest_path_length(g, cutoff=5))
-    # print(time.time() - t)
-    avgs = np.array(
-        [
-            np.mean(metrics[list(g[i].keys())][:], axis=0)
-            for i in range(len(mesh.vertices))
-        ]
-    )
-
-    return [avgs[:, col] for col in range(avgs.shape[1])]
-
-
-def average_over_n_ring(mesh, c, n):
-    g = nx.from_edgelist(mesh.edges_unique)
-    one_rings = [list(g[i].keys()) for i in range(len(mesh.vertices))]
-
-    avg = [0] * len(one_rings)
-    for vertex_id in range(len(one_rings)):
-
-        current_ring = one_rings[vertex_id]
-        n_ring_vertex_ids = current_ring
-        for ring in range(n - 1):
-            # can speed up so not rechecking
-            next_ring = []
-            for i in current_ring:
-                next_ring.extend(one_rings[i])
-            current_ring = np.unique(next_ring)
-            n_ring_vertex_ids.extend(current_ring)
-        avg[vertex_id] = np.mean(c[np.unique(n_ring_vertex_ids)])
-
-    return np.array(avg)
-
-
 class Application:
 
     """
