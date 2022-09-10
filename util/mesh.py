@@ -19,12 +19,14 @@ class MeshProcessor:
         path: str,
         lod: int,
         min_branch_length: int = 500,
+        close_holes=False,
         use_skeletons: bool = False,
     ):
         self.path = path
         self.lod = lod
         self.min_branch_length = min_branch_length
         self.use_skeletons = use_skeletons
+        self.close_holes = close_holes
 
     def get_mesh(self, id):
         def unpack_and_remove(datatype, num_elements, file_content):
@@ -121,7 +123,6 @@ class MeshProcessor:
 
         m = pymeshlab.Mesh(all_vertices, all_faces)
         ms.add_mesh(m)
-        ms.save_current_mesh(f"{id}.ply")
         ms.meshing_remove_duplicate_vertices()
         # # ms.meshing_merge_close_vertices(
         # #     threshold=pymeshlab.Percentage(
@@ -137,13 +138,52 @@ class MeshProcessor:
         ms.meshing_repair_non_manifold_edges(
             method="Split Vertices"
         )  # sometimes this still has nonmanifold vertices
+        ms.meshing_remove_connected_component_by_face_number(mincomponentsize=4)
         #     ms.meshing_repair_non_manifold_vertices(vertdispratio=0.01)
         #     # not sure why this doesn't work on first try even though it does in ui
-        # measures = ms.apply_filter("get_topological_measures")
-        # ms.meshing_close_holes(maxholesize=measures["boundary_edges"] + 1)
+
+        try:
+            measures = ms.apply_filter("get_topological_measures")
+            boundary_edges_prev = np.Inf
+            while 0 < measures["boundary_edges"] < boundary_edges_prev:
+                boundary_edges_prev = measures["boundary_edges"]
+                ms.meshing_close_holes(maxholesize=measures["boundary_edges"] + 1)
+                measures = ms.apply_filter("get_topological_measures")
+        except:
+            pass
+        # if self.close_holes:
+        #     # we shouldnt have real "holes" in the newer approach, but "weird" holes due only to nonmanifold edges
+        #     # in older approach for fab four we can have real holes, so we only want to fill holes when we have real holes
+        #     # < 0 means something else going on with holes
+        #     # HACK
+        #     # then there are holes or something weird with mesh, try to fill holes.
+
+        #     # seems to not always work on 1 iteration. also with the fab four datasets we have holes due to missing faces
+        #     # but for newer ones, there shouldn't be any "real" holes like that i dont think?
+        #     # ultimately we don't care if the mesh is watertight as long as we can get useful measures
+        #     # our older meshes have holes
+        #     measures = ms.apply_filter("get_topological_measures")
+        #     while measures["number_holes"] != 0:
+        #         ms.meshing_close_holes(maxholesize=measures["boundary_edges"] + 1)
+        #         measures = ms.apply_filter("get_topological_measures")
+        # for _ in range(2):
+        # at this point our mesh shouldn't have any fillable holes, but may have nonmanifold edges, which pymeshlab will give errors for. but trimesh seems to produce results with
+        # ms.save_current_mesh(f"{id}.ply")
+        # ms.save_current_mesh(f"{id}.ply")
         mesh = trimesh.Trimesh(
-            ms.current_mesh().vertex_matrix(), ms.current_mesh().face_matrix()
+            ms.current_mesh().vertex_matrix(),
+            ms.current_mesh().face_matrix(),
+            process=False,
         )
+        # broken_faces = trimesh.repair.broken_faces(mesh)
+        # faces_to_remove = [True] * len(mesh.faces)
+        # for broken_face in broken_faces:
+        #    faces_to_remove[broken_face] = False
+        # print(broken_faces)
+        # mesh.update_faces(faces_to_remove)
+        # _ = mesh.export(f"{id}.ply")
+        # while not mesh.is_watertight:
+        #    mesh.fill_holes()
         # measures = ms.apply_filter("get_topological_measures")
         return mesh
 

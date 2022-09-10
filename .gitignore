@@ -1,7 +1,8 @@
 .vscode/
 content/
 
-380.ply
+*.ply
+dask-worker-space/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
