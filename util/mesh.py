@@ -170,6 +170,7 @@ class MeshProcessor:
         # at this point our mesh shouldn't have any fillable holes, but may have nonmanifold edges, which pymeshlab will give errors for. but trimesh seems to produce results with
         # ms.save_current_mesh(f"{id}.ply")
         # ms.save_current_mesh(f"{id}.ply")
+        # ms.meshing_isotropic_explicit_remeshing()  # to help with skeletonization later on
         mesh = trimesh.Trimesh(
             ms.current_mesh().vertex_matrix(),
             ms.current_mesh().face_matrix(),
@@ -189,7 +190,7 @@ class MeshProcessor:
 
     @dask.delayed
     def process_mesh(self, id):
-        os.system(f"touch {id}.txt")
+        # os.system(f"touch {id}.txt")
         mesh = self.get_mesh(id)
         # calculate gneral mesh properties
         metrics = {"id": id}
@@ -265,6 +266,7 @@ class MeshProcessor:
             metrics["num_fragments"] = len(fragments)
             metrics["num_branches"] = num_branches
             metrics["longest_path"] = longest_path
-        os.system(f"rm {id}.txt")
+        metrics["mesh"] = mesh
+        # os.system(f"rm {id}.txt")
         # return measures["axis_momenta"]
         return metrics
