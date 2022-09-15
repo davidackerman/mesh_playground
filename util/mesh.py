@@ -196,17 +196,15 @@ class MeshProcessor:
         metrics = {"id": id}
         metrics["volume"] = mesh.volume
         metrics["surface_area"] = mesh.area
-        principal_inertia_components = mesh.principal_inertia_components
-        principal_inertia_components_normalized = principal_inertia_components / np.sum(
-            principal_inertia_components
-        )
+        pic = mesh.principal_inertia_components
+        pic_normalized = pic / np.sum(pic)
+        _, ob = trimesh.bounds.oriented_bounds(mesh)
+        ob_normalized = ob / np.sum(ob)
         for axis in range(3):
-            metrics[
-                f"principal_inertia_component_{axis}"
-            ] = principal_inertia_components[axis]
-            metrics[
-                f"principal_inertia_component_normalized_{axis}"
-            ] = principal_inertia_components_normalized[axis]
+            metrics[f"pic_{axis}"] = pic[axis]
+            metrics[f"pic_normalized_{axis}"] = pic_normalized[axis]
+            metrics[f"ob_{axis}"] = ob[axis]
+            metrics[f"ob_normalized_{axis}"] = ob_normalized[axis]
         # for axis in range(3):
         #     metrics[f"axis_momenta_{axis}"] = measures["axis_momenta"][axis]
         #     metrics[f"axis_momenta_normalized_{axis}"] = axis_momenta_normalized[axis]
@@ -266,7 +264,7 @@ class MeshProcessor:
             metrics["num_fragments"] = len(fragments)
             metrics["num_branches"] = num_branches
             metrics["longest_path"] = longest_path
-        metrics["mesh"] = mesh
+        # metrics["mesh"] = mesh
         # os.system(f"rm {id}.txt")
         # return measures["axis_momenta"]
         return metrics
