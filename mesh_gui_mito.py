@@ -53,7 +53,7 @@ class Application:
         )
         # momenta = np.zeros((421,3),dtype=np.float32)
         lazy_results = []
-        for i in range(1, 422, 1):  # range(1,87077,100): #
+        for i in range(1, 20, 1):  # range(1,87077,100): #
             lazy_results.append(mp.process_mesh(id=i))
         results = dask.compute(*lazy_results)
         df = pd.DataFrame.from_records(results)
@@ -112,12 +112,12 @@ class Application:
             mesh.visual.face_colors = self.lighten_color(
                 trimesh.visual.color.random_color(), 0.1
             )
-            # scene.add_geometry(mesh, geom_name=f"mesh_{id}")
+            scene.add_geometry(mesh, geom_name=f"mesh_{id}")
             self.mesh_ids.append(id)
             self.mesh_face_ids.extend([id] * len(mesh.faces))
 
         self.all_meshes = trimesh.util.concatenate(self.all_meshes)
-        scene.add_geometry(self.all_meshes, geom_name="all_meshes")
+        # scene.add_geometry(self.all_meshes, geom_name="all_meshes")
         # self.widgets = []
         self.widget = trimesh.viewer.SceneWidget(scene, smooth=True)
         self.widget._background = [0, 0, 0, 255]
@@ -140,20 +140,23 @@ class Application:
         return rgb_new
 
     def cursor_triangle(self):
-        x, y = self.mouse_pos
-        origins, vectors, _ = self.widget.scene.camera_rays()
-        resolution = self.widget.scene.camera.resolution
-        left = self.widget.rect.left
-        bottom = self.widget.rect.bottom
-        x_in_scene, y_in_scene = x - left - self.padding, y - bottom - self.padding
-        idx = x_in_scene * resolution[1] + ((resolution[1] - 1) - y_in_scene)
-        current_origin, current_vector = origins[idx], vectors[idx]
-        _, _, triangle_index = self.all_meshes.ray.intersects_location(
-            [current_origin], [current_vector], multiple_hits=False
-        )
-        if triangle_index.size > 0:
-            return triangle_index[0]
-        else:
+        try:
+            x, y = self.mouse_pos
+            origins, vectors, _ = self.widget.scene.camera_rays()
+            resolution = self.widget.scene.camera.resolution
+            left = self.widget.rect.left
+            bottom = self.widget.rect.bottom
+            x_in_scene, y_in_scene = x - left - self.padding, y - bottom - self.padding
+            idx = x_in_scene * resolution[1] + ((resolution[1] - 1) - y_in_scene)
+            current_origin, current_vector = origins[idx], vectors[idx]
+            _, _, triangle_index = self.all_meshes.ray.intersects_location(
+                [current_origin], [current_vector], multiple_hits=False
+            )
+            if triangle_index.size > 0:
+                return triangle_index[0]
+            else:
+                return None
+        except:
             return None
 
     def get_current_widget(self):
@@ -299,10 +302,10 @@ class Application:
                     self.meshes_to_manual_class_dict[
                         self.selected_id
                     ] = self.key_pressed
-                    group_color = self.class_colors[self.key_pressed, :]
-                    self.previous_color = group_color
+                    class_color = self.class_colors[self.key_pressed, :]
+                    self.previous_color = class_color
                     self.selected_mesh.visual.face_colors = self.lighten_color(
-                        group_color, 0.6
+                        class_color, 0.6
                     )
                     self.widget._draw()
 
