@@ -11,7 +11,16 @@ import navis
 from navis import graph
 import skeletor as sk
 import dask
+import networkx as nx
+from xvfbwrapper import Xvfb
 
+
+from requests.adapters import HTTPAdapter
+from urllib3.response import HTTPResponse
+class FileAdapter(HTTPAdapter):
+    def send(self, request, *args, **kwargs):
+        resp = HTTPResponse(body=open(request.url[7:], 'rb'), status=200, preload_content=False)
+        return self.build_response(request, resp)
 
 class MeshProcessor:
     def __init__(
@@ -21,14 +30,40 @@ class MeshProcessor:
         min_branch_length: int = 500,
         close_holes=False,
         use_skeletons: bool = False,
+        numberrays=128,
     ):
+        self.is_file_path = False
+        if not (path.startswith("http") or path.startswith("file")):
+            self.is_file_path = True
+            path = "file://" + path
         self.path = path
         self.lod = lod
         self.min_branch_length = min_branch_length
         self.use_skeletons = use_skeletons
         self.close_holes = close_holes
+        self.numberrays = numberrays
 
+        # for local data
+        self.session = requests.Session()
+        self.session.mount('file://', FileAdapter())
+
+    
     def get_mesh(self, id):
+        def get_lod_bytes(lod_byte_offset):
+            # read mesh lod
+            if self.is_file_path:
+                # range requests don't work with file path
+                with open(f"{self.path[7:]}/{id}", mode="rb") as f:
+                    f.seek(lod_byte_offset[0])
+                    lod_bytes = f.read(lod_byte_offset[-1]-lod_byte_offset[0])
+            else:
+                response = self.session.get(
+                    f"{self.path}/{id}",
+                    headers={"range": f"bytes={lod_byte_offset[0]}-{lod_byte_offset[-1]}"},
+                )
+                lod_bytes = response.content
+            return lod_bytes
+    
         def unpack_and_remove(datatype, num_elements, file_content):
             datatype = datatype * num_elements
             output = struct.unpack(datatype, file_content[0 : 4 * num_elements])
@@ -36,7 +71,7 @@ class MeshProcessor:
             return np.array(output), file_content
 
         # get quantization and transform (for voxel size)
-        response = requests.get(f"{self.path}/info")
+        response = self.session.get(f"{self.path}/info")
         meshes_info = response.json()
         vertex_quantization_bits = meshes_info["vertex_quantization_bits"]
         meshes_transform = meshes_info["transform"]
@@ -44,7 +79,7 @@ class MeshProcessor:
         meshes_transform = np.reshape(meshes_transform, (4, 4))
 
         # get index file info
-        response = requests.get(f"{self.path}/{id}.index")
+        response = self.session.get(f"{self.path}/{id}.index")
         index_file_content = response.content
         chunk_shape, index_file_content = unpack_and_remove("f", 3, index_file_content)
         grid_origin, index_file_content = unpack_and_remove("f", 3, index_file_content)
@@ -77,11 +112,7 @@ class MeshProcessor:
         mesh_fragments = []
 
         # read mesh lod
-        response = requests.get(
-            f"{self.path}/{id}",
-            headers={"range": f"bytes={lod_byte_offset[0]}-{lod_byte_offset[-1]}"},
-        )
-        lod_bytes = response.content
+        lod_bytes = get_lod_bytes(lod_byte_offset)
 
         all_vertices = np.empty((0, 3))
         all_faces = np.empty((0, 3))
@@ -91,7 +122,6 @@ class MeshProcessor:
 
                 start = lod_byte_offset[idx] - lod_byte_offset[0]
                 stop = lod_byte_offset[idx + 1] - lod_byte_offset[0] + 1
-
                 drc_mesh = DracoPy.decode(lod_bytes[start:stop])  # response.content)
                 vertices = drc_mesh.points
                 faces = drc_mesh.faces
@@ -136,7 +166,8 @@ class MeshProcessor:
         # measures = ms.apply_filter("get_topological_measures")
         # if measures["number_holes"] != 0:
         ms.meshing_repair_non_manifold_edges(
-            method="Split Vertices"
+            method="Remove Faces"
+            # method="Split Vertices", previously used split vertices
         )  # sometimes this still has nonmanifold vertices
         ms.meshing_remove_connected_component_by_face_number(mincomponentsize=4)
         #     ms.meshing_repair_non_manifold_vertices(vertdispratio=0.01)
@@ -174,6 +205,7 @@ class MeshProcessor:
         mesh = trimesh.Trimesh(
             ms.current_mesh().vertex_matrix(),
             ms.current_mesh().face_matrix(),
+            # process=False,
             process=False,
         )
         # broken_faces = trimesh.repair.broken_faces(mesh)
@@ -186,12 +218,13 @@ class MeshProcessor:
         # while not mesh.is_watertight:
         #    mesh.fill_holes()
         # measures = ms.apply_filter("get_topological_measures")
-        return mesh
+        return mesh, ms
 
     @dask.delayed
     def process_mesh(self, id):
         # os.system(f"touch {id}.txt")
-        mesh = self.get_mesh(id)
+
+        mesh, ms = self.get_mesh(id)
         # calculate gneral mesh properties
         metrics = {"id": id}
         metrics["volume"] = mesh.volume
@@ -205,6 +238,50 @@ class MeshProcessor:
             metrics[f"pic_normalized_{axis}"] = pic_normalized[axis]
             metrics[f"ob_{axis}"] = ob[axis]
             metrics[f"ob_normalized_{axis}"] = ob_normalized[axis]
+        # ms.calculat
+        # with warnings.catch_warnings():
+        #     warnings.filterwarnings("ignore")
+        #     metrics["mean_curvature"] = np.nanmean(
+        #         my_discrete_mean_curvature_measure(mesh)
+        #     )
+
+        # metrics["gaussian_curvature"] = np.nanmean(
+        #     my_discrete_gaussian_curvature_measure(mesh)
+        # )
+
+        # mesh = mesh.process()
+        vdisplay = Xvfb()
+        vdisplay.start()
+
+        try:
+            ms.meshing_repair_non_manifold_edges()
+            ms.meshing_repair_non_manifold_edges()
+            for idx, metric in enumerate(["mean", "gaussian", "rms", "abs"]):
+                ms.compute_scalar_by_discrete_curvature_per_vertex(curvaturetype=idx)
+                vsa = ms.current_mesh().vertex_scalar_array()
+                metrics[f"{metric}_curvature_mean"] = np.nanmean(vsa)
+                metrics[f"{metric}_curvature_median"] = np.nanmedian(vsa)
+                metrics[f"{metric}_curvature_std"] = np.nanstd(vsa)
+
+            ms.compute_scalar_by_shape_diameter_function_per_vertex(
+                numberrays=self.numberrays
+            )
+            vsa = ms.current_mesh().vertex_scalar_array()
+            metrics["thickness_mean"] = np.nanmean(vsa)
+            metrics["thickness_median"] = np.nanmedian(vsa)
+            metrics["thickness_std"] = np.nanstd(vsa)
+
+            # # center of each subdivided face offset inwards
+            # points = mesh.triangles_center + (mesh.face_normals * -1e-4)
+            # # use the original mesh for thickness as it is well constructed
+            # metrics["thickness"] = np.nanmean(
+            #     trimesh.proximity.thickness(mesh=mesh, points=points)
+            # )
+        except:
+            ms.save_current_mesh(f"{id}.ply")
+            raise Exception(f"failed {id}")
+        finally:
+            vdisplay.stop()
         # for axis in range(3):
         #     metrics[f"axis_momenta_{axis}"] = measures["axis_momenta"][axis]
         #     metrics[f"axis_momenta_normalized_{axis}"] = axis_momenta_normalized[axis]
