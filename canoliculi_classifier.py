@@ -185,3 +185,19 @@ fp.set_metrics(list(df.columns[1:]))
 print("set metrics")
 
 # %%
+# Save final version as all the good ones
+import pandas as pd
+
+df = pd.read_csv(
+    "/groups/scicompsoft/home/ackermand/Programming/mesh_playground/output/classification/jrc_mus-liver-zon-2/canoliculi_cc_close_raw_mask_filled/20250129_125415/classification.csv",
+)
+# filter by Class Name column having "good" in it
+df_good = df[df["Class Name"].str.contains("good")]
+df_good.to_csv(
+    "/groups/scicompsoft/home/ackermand/Programming/mesh_playground/output/classification/jrc_mus-liver-zon-2/canoliculi_cc_close_raw_mask_filled/20250129_125415/classification_good.csv",
+    index=False,
+)
+
+
+
+# %%
