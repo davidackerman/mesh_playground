@@ -70,9 +70,9 @@ class NeuroglancerPredictor:
                 f"https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires/segment_properties/info",
             )
             info_file = response.json()
+            self.all_segment_ids = [int(id) for id in info_file["inline"]["ids"]]
             if not self.selected_segment_ids:
                 self.selected_segment_ids = self.all_segment_ids
-            self.all_segment_ids = [int(id) for id in info_file["inline"]["ids"]]
             self.mesh_id_to_index_dict = dict(
                 zip(self.all_segment_ids, np.arange(len(self.all_segment_ids)))
             )
