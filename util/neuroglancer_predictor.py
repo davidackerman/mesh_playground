@@ -26,11 +26,10 @@ class NeuroglancerPredictor:
         use_meshes=True,
         selected_segment_ids=None,
         previous_results=None,
+        segmentation_path=None,
     ):
-        if not use_meshes:
-            assert (
-                segmentation_path is not None
-            ), "Segmentation path is required when not using meshes"
+        self.segmentation_path = None
+        if segmentation_path is not None:
             vm_path = "https://cellmap-vm1.int.janelia.org"
             segmentation_path = segmentation_path.replace(
                 "/nrs/cellmap/", f"{vm_path}/nrs/"
@@ -40,6 +39,10 @@ class NeuroglancerPredictor:
                 if ".zarr" in segmentation_path
                 else f"n5://{segmentation_path}"
             )
+        if not use_meshes:
+            assert (
+                self.segmentation_path is not None
+            ), "Segmentation path is required when not using meshes"
 
         self.dataset = dataset
         self.organelle = organelle
@@ -78,13 +81,19 @@ class NeuroglancerPredictor:
             )
             with self.viewer.txn() as s:
                 s.layers["raw"] = neuroglancer.ImageLayer(  # Single MEsh Layer?
-                    source=f"zarr://https://cellmap-vm1.int.janelia.org/nrs/data/{self.dataset}/{self.dataset}.zarr/recon-1/em/fibsem-uint8/",
+                    source=[
+                        f"zarr://https://cellmap-vm1.int.janelia.org/nrs/data/{self.dataset}/{self.dataset}.zarr/recon-1/em/fibsem-uint8/",
+                    ]
                 )
-                s.layers["mesh"] = neuroglancer.SegmentationLayer(  # Single MEsh Layer?
-                    source=f"precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires",
+                s.layers["all meshes"] = neuroglancer.SegmentationLayer(
+                    source=[
+                        self.segmentation_path,
+                        f"precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires",
+                    ]
                 )
+
                 for index, segment_id in enumerate(self.selected_segment_ids):
-                    s.layers["mesh"].segments.add(segment_id)
+                    s.layers["all meshes"].segments.add(segment_id)
                 for class_name, _, _ in self.class_info:
                     s.layers[class_name] = neuroglancer.SegmentationLayer(
                         source=f"precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires",
@@ -157,6 +166,10 @@ class NeuroglancerPredictor:
         with self.viewer.config_state.txn() as s:
             for _, key, _ in self.class_info:
                 s.input_event_bindings.viewer[f"key{key}"] = f"my-action-{key}"
+                s.input_event_bindings.viewer[f"shift+key{key}"] = (
+                    f"my-action-hide-{key}"
+                )
+
             s.input_event_bindings.viewer["keyp"] = "my-action-p"
 
         url = self.viewer.get_viewer_url()

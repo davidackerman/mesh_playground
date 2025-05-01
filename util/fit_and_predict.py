@@ -18,6 +18,7 @@ class FitAndPredict:
         self.viewer = np.viewer
         self.all_segment_ids = np.all_segment_ids
         self.mesh_id_to_index_dict = np.mesh_id_to_index_dict
+        self.class_visibility = [True for _ in range(len(np.class_info))]
 
         # in case loading in pre annotated results:
         self.previous_mesh_index_to_class_dict = np.mesh_index_to_class_dict
@@ -74,6 +75,19 @@ class FitAndPredict:
         classificaiton_df.to_csv(f"{self.output_dir}/classification.csv", index=False)
 
     def set_metrics(self, metric_names):
+        def toggle_class_visibility(class_idx, s):
+            self.class_visibility[class_idx] = not self.class_visibility[class_idx]
+            new_state = copy.deepcopy(self.viewer.state)
+            mesh_layer = new_state.layers["all meshes"]
+            current_visible_segments = []
+            for mesh_id, mesh_index in self.mesh_id_to_index_dict.items():
+                if self.class_visibility[self.class_predictions[mesh_index]]:
+                    if mesh_index not in self.mesh_index_to_class_dict:
+                        # then is not manually labeled (want manually labeled to remain hidden, and currently original colors?)
+                        current_visible_segments.append(mesh_id)
+            mesh_layer.segments = current_visible_segments
+            self.viewer.set_state(new_state)
+
         def fit_and_predict(s):
             self.metrics = self.df[metric_names].to_numpy()
             self.mesh_index_to_class_dict = {}
@@ -84,7 +98,7 @@ class FitAndPredict:
 
             state = self.viewer.state
             for layer in state.layers:
-                if layer.name == "mesh" or layer.name == "raw":
+                if layer.name == "all meshes" or layer.name == "raw":
                     #  otherwise it is a class layer
                     continue
                 for segment_id in layer.segments:
@@ -96,7 +110,7 @@ class FitAndPredict:
             self.write_output()
 
             new_state = copy.deepcopy(self.viewer.state)
-            mesh_layer = new_state.layers["mesh"]
+            mesh_layer = new_state.layers["all meshes"]
 
             segment_colors = {}
             for segment_id in mesh_layer.segments:
@@ -109,4 +123,8 @@ class FitAndPredict:
 
         # self.viewer.actions.remove("my-action-p", fit_and_predict)
         self.viewer.actions.add("my-action-p", fit_and_predict)
+        for class_idx, (_, key, _) in enumerate(self.class_info):
+            self.viewer.actions.add(
+                f"my-action-hide-{key}", partial(toggle_class_visibility, class_idx)
+            )
         print("set function")
