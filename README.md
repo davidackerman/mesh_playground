@@ -26,17 +26,23 @@ mesh_playground/
 │   ├── mesh.py                    # Mesh loading, repair, and metric computation
 │   ├── neuroglancer_predictor.py  # Neuroglancer viewer setup and annotation
 │   └── fit_and_predict.py         # ML training and prediction pipeline
-├── jrc_mus-salivary-{1,2,3}/
-│   └── nuc.py                     # Salivary gland nuclei classification scripts
-├── c-elegans/
-│   └── jrc_P3_E5_D1_N2.py        # C. elegans nuclei classification
-├── zon-1_canaliculi_classifier.py # Liver zone-1 canaliculi classification
-├── zon-2_canoliculi_classifier.py # Liver zone-2 canaliculi classification
-├── show_yurii.py                  # Multi-round classification workflow example
-├── mesh_gui.py                    # Dual-window mesh viewer with labeling
 ├── environment.yaml               # Conda environment specification
 └── output/                        # Classification results (CSV)
 ```
+
+## Examples
+
+Dataset-specific classification scripts demonstrate the full workflow for each organism and organelle:
+
+| Script | Dataset | Organelle | Description |
+|--------|---------|-----------|-------------|
+| `jrc_mus-salivary-1/nuc.py` | Mouse salivary gland 1 | Nuclei | Single-round nuclei classification |
+| `jrc_mus-salivary-2/nuc.py` | Mouse salivary gland 2 | Nuclei | Single-round nuclei classification |
+| `jrc_mus-salivary-3/nuc.py` | Mouse salivary gland 3 | Nuclei | Single-round nuclei classification |
+| `c-elegans/jrc_P3_E5_D1_N2.py` | C. elegans | Nuclei | Nuclei classification with post-hoc filtering of "good" results |
+| `zon-1_canaliculi_classifier.py` | Mouse liver zone 1 | Canaliculi | Canaliculi classification with custom segmentation path |
+| `zon-2_canoliculi_classifier.py` | Mouse liver zone 2 | Canaliculi | Multi-round iterative refinement (see also `show_yurii.py`) |
+| `show_yurii.py` | Mouse liver zone 2 | Canaliculi | Full multi-round workflow: classify top 1000 by volume, refine next 1000 using prior results, then re-classify top "good" predictions |
 
 ## Setup
 
