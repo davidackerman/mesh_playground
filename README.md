@@ -87,18 +87,31 @@ np = NeuroglancerPredictor(
 np.setup_neuroglancer()
 ```
 
-Open the printed Neuroglancer URL in a browser and use the configured keyboard shortcuts to assign classes to meshes.
+Open the printed Neuroglancer URL in a browser. All meshes are displayed in the "all meshes" layer. Select a mesh and press one of the classification keys to move it into the corresponding class layer:
+
+| Key | Action |
+|-----|--------|
+| `h` | Classify selected mesh as "good big" (red) |
+| `j` | Classify selected mesh as "bad big" (gray) |
+| `k` | Classify selected mesh as "good small" (blue) |
+| `l` | Classify selected mesh as "bad small" (magenta) |
+| `Shift+<key>` | Toggle visibility of the corresponding class layer |
+| `p` | Fit classifier on manual labels and predict all remaining meshes |
+
+The classification keys are defined by the `class_info` parameter — each tuple is `(class_name, key, color)`. When you press a key, the selected mesh is removed from its current layer and added to the target class layer with the specified color.
 
 ### 3. Train classifier and predict
+
+After manually labeling a representative subset, press `p` to train an MLP classifier (scikit-learn `MLPClassifier`) on the labeled mesh metrics and predict classes for all unlabeled meshes. Predictions are color-coded in the "all meshes" layer and results are written to CSV.
 
 ```python
 from util.fit_and_predict import FitAndPredict
 
 fp = FitAndPredict(df_metrics, np)
-fp.set_metrics(metric_columns)  # Trains on manual labels, predicts remaining
+fp.set_metrics(metric_columns)  # Binds the 'p' key to fit-and-predict
 ```
 
-Results are exported to `output/classification/{dataset}/{organelle}/{timestamp}/classification.csv`.
+Results are exported to `output/classification/{dataset}/{organelle}/{timestamp}/classification.csv` with columns: Object ID, Manually Labeled Class, Class Prediction, and Class Name.
 
 ## Author
 
