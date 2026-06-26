@@ -92,8 +92,10 @@ class MeshProcessor:
 
     @dask.delayed
     def process_mesh(self, id):
-        # os.system(f"touch {id}.txt")
+        """Delayed wrapper around :meth:`compute_metrics` (for dask fan-out)."""
+        return self.compute_metrics(id)
 
+    def compute_metrics(self, id):
         mesh, ms = self.get_mesh(id)
         # calculate general mesh properties
         metrics = {"id": id}

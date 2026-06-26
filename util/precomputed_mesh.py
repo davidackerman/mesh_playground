@@ -14,6 +14,7 @@ CloudVolume double-scale; we detect that and decode those ourselves.
 References:
   https://github.com/google/neuroglancer/blob/master/src/datasource/precomputed/meshes.md
 """
+import os
 import struct
 
 import numpy as np
@@ -108,12 +109,26 @@ class PrecomputedMeshReader:
         return bool(self.info.get("sharding"))
 
     def list_segment_ids(self):
-        """Segment ids from the ``segment_properties`` info, if present."""
+        """Segment ids for this mesh source.
+
+        Prefers the ``segment_properties`` inline id list; for a local unsharded
+        directory, falls back to listing ``{id}.index`` manifest files.
+        """
         try:
             d = self.session.get(f"{self.path}/segment_properties/info").json()
-            return [int(x) for x in d.get("inline", {}).get("ids", [])]
+            ids = [int(x) for x in d.get("inline", {}).get("ids", [])]
+            if ids:
+                return sorted(ids)
         except Exception:
-            return []
+            pass
+        if self.is_file_path and not self.is_sharded:
+            local = self.path[len("file://"):]
+            return sorted(
+                int(f[: -len(".index")])
+                for f in os.listdir(local)
+                if f.endswith(".index")
+            )
+        return []
 
     def _read(self, rel_path):
         return self.session.get(f"{self.path}/{rel_path}").content
