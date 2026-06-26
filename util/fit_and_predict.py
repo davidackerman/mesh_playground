@@ -23,11 +23,9 @@ class FitAndPredict:
         # in case loading in pre annotated results:
         self.previous_mesh_index_to_class_dict = np.mesh_index_to_class_dict
 
-        self.output_dir = (
-            f"output/classification/{np.dataset}/{np.organelle}/"
-            + datetime.now().strftime("%Y%m%d_%H%M%S")
-        )
-        os.makedirs(self.output_dir, exist_ok=True)
+        # one timestamped subdir per prediction run (created in write_output),
+        # so repeated predictions accumulate a history rather than overwriting
+        self.output_base = f"output/classification/{np.dataset}/{np.organelle}"
 
     def fit(self):
         self.classifier = MLPClassifier(alpha=1, max_iter=1000)
@@ -63,16 +61,23 @@ class FitAndPredict:
                 manual_labeled_class_index
             )
 
+        run_time = datetime.now()
         classificaiton_df = pd.DataFrame(
             {
                 "Object ID": self.all_segment_ids,
                 "Manually Labeled Class": manually_labeled_class_names,
                 "Class Prediction": self.class_predictions,
                 "Class Name": class_prediction_names,
+                "Prediction Datetime": run_time.isoformat(timespec="seconds"),
             }
         )
 
+        # each prediction run gets its own timestamped folder, so the history of
+        # runs is preserved and the most recent is simply the latest timestamp
+        self.output_dir = f"{self.output_base}/{run_time.strftime('%Y%m%d_%H%M%S')}"
+        os.makedirs(self.output_dir, exist_ok=True)
         classificaiton_df.to_csv(f"{self.output_dir}/classification.csv", index=False)
+        print(f"wrote {self.output_dir}/classification.csv")
 
     def set_metrics(self, metric_names):
         def toggle_class_visibility(class_idx, s):
