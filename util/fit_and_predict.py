@@ -23,9 +23,14 @@ class FitAndPredict:
         # in case loading in pre annotated results:
         self.previous_mesh_index_to_class_dict = np.mesh_index_to_class_dict
 
-        # one timestamped subdir per prediction run (created in write_output),
-        # so repeated predictions accumulate a history rather than overwriting
-        self.output_base = f"output/classification/{np.dataset}/{np.organelle}"
+        # one timestamped dir per server start; each prediction (`p`) appends to
+        # classification.csv inside it, tagged with the run datetime, so the file
+        # accumulates a history of prediction runs for this session
+        self.output_dir = (
+            f"output/classification/{np.dataset}/{np.organelle}/"
+            + datetime.now().strftime("%Y%m%d_%H%M%S")
+        )
+        os.makedirs(self.output_dir, exist_ok=True)
 
     def fit(self):
         self.classifier = MLPClassifier(alpha=1, max_iter=1000)
@@ -72,12 +77,12 @@ class FitAndPredict:
             }
         )
 
-        # each prediction run gets its own timestamped folder, so the history of
-        # runs is preserved and the most recent is simply the latest timestamp
-        self.output_dir = f"{self.output_base}/{run_time.strftime('%Y%m%d_%H%M%S')}"
-        os.makedirs(self.output_dir, exist_ok=True)
-        classificaiton_df.to_csv(f"{self.output_dir}/classification.csv", index=False)
-        print(f"wrote {self.output_dir}/classification.csv")
+        # append this run's results to the session CSV (write header only the
+        # first time); each run is distinguished by its Prediction Datetime
+        path = f"{self.output_dir}/classification.csv"
+        header = not os.path.exists(path)
+        classificaiton_df.to_csv(path, mode="a", header=header, index=False)
+        print(f"appended {len(classificaiton_df)} rows ({run_time.isoformat(timespec='seconds')}) to {path}")
 
     def set_metrics(self, metric_names):
         def toggle_class_visibility(class_idx, s):
