@@ -7,6 +7,11 @@ platforms = ["linux-64"]
 
 [tasks]
 
+# put the repo root on PYTHONPATH so `import util...` works from any cwd
+# (e.g. `pixi run python jrc_mosquito-stylet-6/nuc.py`)
+[activation.env]
+PYTHONPATH = "$PIXI_PROJECT_ROOT"
+
 [dependencies]
 python = ">=3.11,<3.13"
 pip = "*"
