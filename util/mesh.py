@@ -51,12 +51,12 @@ class MeshProcessor:
         # iteratively close any boundary holes left after repair; stop once the
         # number of boundary edges stops decreasing (or hits zero)
         try:
-            measures = ms.apply_filter("get_topological_measures")
+            measures = ms.get_topological_measures()
             boundary_edges_prev = np.inf
             while 0 < measures["boundary_edges"] < boundary_edges_prev:
                 boundary_edges_prev = measures["boundary_edges"]
                 ms.meshing_close_holes(maxholesize=measures["boundary_edges"] + 1)
-                measures = ms.apply_filter("get_topological_measures")
+                measures = ms.get_topological_measures()
         except Exception as e:
             warnings.warn(f"hole-closing skipped for {id}: {e}")
 
@@ -135,7 +135,7 @@ class MeshProcessor:
                 metrics[f"{metric}_curvature_std"] = np.nanstd(vsa)
 
             ms.compute_scalar_by_shape_diameter_function_per_vertex(
-                numberrays=self.numberrays
+                rays=self.numberrays
             )
             vsa = ms.current_mesh().vertex_scalar_array()
             metrics["thickness_mean"] = np.nanmean(vsa)
