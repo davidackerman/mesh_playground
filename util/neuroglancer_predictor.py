@@ -176,11 +176,13 @@ class NeuroglancerPredictor:
             for (
                 selected_class_key,
                 selected_class_value,
-            ) in s.selected_values.iteritems():
+            ) in s.selected_values.items():
                 if selected_class_key == "raw":
                     continue
-                print(f"{selected_class_key=}")
-                selected_mesh_id = selected_class_value.value
+                value = selected_class_value.value
+                # segmentation layers report a SegmentIdMapEntry (id in .key);
+                # other layers may report a bare number
+                selected_mesh_id = getattr(value, "key", value)
                 if selected_mesh_id:
                     break
 
