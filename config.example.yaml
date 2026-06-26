@@ -1,0 +1,16 @@
+# Copy to config.yaml (gitignored) and fill in real, machine-specific paths.
+# Keeping paths here keeps data locations and dataset names out of the
+# committed code. classify.py reads an entry by its top-level key:
+#
+#     pixi run python classify.py <dataset_key>
+
+datasets:
+  my-dataset:                       # arbitrary key passed to classify.py
+    dataset: my-dataset             # dataset name (used to locate the raw EM)
+    organelle: nuc
+    metrics_csv: /path/to/mesh_metrics.csv
+    segmentation_path: /path/to/data.zarr/recon-1/labels/inference/segmentations/nuc
+    mesh_path: /path/to/multires
+    classes:                        # [display name, hotkey, color]
+      - [neuron, h, red]
+      - [non_neuron, j, gray]
