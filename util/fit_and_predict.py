@@ -73,16 +73,14 @@ class FitAndPredict:
                 "Manually Labeled Class": manually_labeled_class_names,
                 "Class Prediction": self.class_predictions,
                 "Class Name": class_prediction_names,
-                "Prediction Datetime": run_time.isoformat(timespec="seconds"),
             }
         )
 
-        # append this run's results to the session CSV (write header only the
-        # first time); each run is distinguished by its Prediction Datetime
-        path = f"{self.output_dir}/classification.csv"
-        header = not os.path.exists(path)
-        classificaiton_df.to_csv(path, mode="a", header=header, index=False)
-        print(f"appended {len(classificaiton_df)} rows ({run_time.isoformat(timespec='seconds')}) to {path}")
+        # one file per prediction run, timestamped in the filename, inside this
+        # session's output dir -> a history of runs (most recent = latest stamp)
+        path = f"{self.output_dir}/classification_{run_time.strftime('%Y%m%d_%H%M%S')}.csv"
+        classificaiton_df.to_csv(path, index=False)
+        print(f"wrote {path}")
 
     def set_metrics(self, metric_names):
         def toggle_class_visibility(class_idx, s):
