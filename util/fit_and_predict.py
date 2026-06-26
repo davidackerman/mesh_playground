@@ -23,6 +23,9 @@ class FitAndPredict:
         # in case loading in pre annotated results:
         self.previous_mesh_index_to_class_dict = np.mesh_index_to_class_dict
 
+        # one timestamped dir per server start; each prediction (`p`) appends to
+        # classification.csv inside it, tagged with the run datetime, so the file
+        # accumulates a history of prediction runs for this session
         self.output_dir = (
             f"output/classification/{np.dataset}/{np.organelle}/"
             + datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -63,6 +66,7 @@ class FitAndPredict:
                 manual_labeled_class_index
             )
 
+        run_time = datetime.now()
         classificaiton_df = pd.DataFrame(
             {
                 "Object ID": self.all_segment_ids,
@@ -72,7 +76,11 @@ class FitAndPredict:
             }
         )
 
-        classificaiton_df.to_csv(f"{self.output_dir}/classification.csv", index=False)
+        # one file per prediction run, timestamped in the filename, inside this
+        # session's output dir -> a history of runs (most recent = latest stamp)
+        path = f"{self.output_dir}/classification_{run_time.strftime('%Y%m%d_%H%M%S')}.csv"
+        classificaiton_df.to_csv(path, index=False)
+        print(f"wrote {path}")
 
     def set_metrics(self, metric_names):
         def toggle_class_visibility(class_idx, s):

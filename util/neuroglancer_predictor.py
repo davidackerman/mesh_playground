@@ -89,18 +89,27 @@ class NeuroglancerPredictor:
             else:
                 served_mesh_path = f"https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires/segment_properties"
 
-            response = requests.get(f"{served_mesh_path}/info")
-            info_file = response.json()
+            # segment ids: prefer the segment_properties inline list (works for
+            # both sharded and unsharded meshes); fall back to the mesh info's
+            # inline ids, then to listing local .index manifest files.
+            self.all_segment_ids = []
             try:
-                self.all_segment_ids = [int(id) for id in info_file["inline"]["ids"]]
-            except (ValueError, KeyError):
-                self.all_segment_ids = []
-                files = set(os.listdir(self.mesh_path))
-                self.all_segment_ids = sorted(
-                    int(f[:-6])
-                    for f in files
-                    if f.endswith(".index") and f[:-6] in files
-                )
+                sp = requests.get(f"{served_mesh_path}/segment_properties/info").json()
+                self.all_segment_ids = [int(x) for x in sp["inline"]["ids"]]
+            except Exception:
+                pass
+            if not self.all_segment_ids:
+                info_file = requests.get(f"{served_mesh_path}/info").json()
+                try:
+                    self.all_segment_ids = [
+                        int(id) for id in info_file["inline"]["ids"]
+                    ]
+                except (ValueError, KeyError, TypeError):
+                    files = set(os.listdir(self.mesh_path))
+                    self.all_segment_ids = [
+                        int(f[:-6]) for f in files if f.endswith(".index")
+                    ]
+            self.all_segment_ids = sorted(self.all_segment_ids)
 
             if not self.selected_segment_ids:
                 self.selected_segment_ids = self.all_segment_ids
@@ -167,11 +176,13 @@ class NeuroglancerPredictor:
             for (
                 selected_class_key,
                 selected_class_value,
-            ) in s.selected_values.iteritems():
+            ) in s.selected_values.items():
                 if selected_class_key == "raw":
                     continue
-                print(f"{selected_class_key=}")
-                selected_mesh_id = selected_class_value.value
+                value = selected_class_value.value
+                # segmentation layers report a SegmentIdMapEntry (id in .key);
+                # other layers may report a bare number
+                selected_mesh_id = getattr(value, "key", value)
                 if selected_mesh_id:
                     break
 
@@ -195,10 +206,34 @@ class NeuroglancerPredictor:
 
                 self.viewer.set_state(new_state)
 
+        def manually_unclassify(s):
+            # Move the hovered mesh out of whatever class layer it's in and back
+            # to the unlabeled "all meshes" pool.
+            selected_mesh_id = None
+            selected_class_key = None
+            for class_key, value_obj in s.selected_values.items():
+                if class_key in ("raw", "all meshes"):
+                    continue
+                value = value_obj.value
+                mesh_id = getattr(value, "key", value)
+                if mesh_id:
+                    selected_mesh_id = mesh_id
+                    selected_class_key = class_key
+                    break
+
+            if selected_mesh_id:
+                new_state = copy.deepcopy(self.viewer.state)
+                class_segments = new_state.layers[selected_class_key].segments
+                if selected_mesh_id in class_segments:
+                    class_segments.remove(selected_mesh_id)
+                new_state.layers["all meshes"].segments.add(selected_mesh_id)
+                self.viewer.set_state(new_state)
+
         for name, key, color in self.class_info:
             self.viewer.actions.add(
                 f"my-action-{key}", partial(manually_label, name, color)
             )
+        self.viewer.actions.add("my-action-unclassify", manually_unclassify)
 
         with self.viewer.config_state.txn() as s:
             for _, key, _ in self.class_info:
@@ -208,6 +243,8 @@ class NeuroglancerPredictor:
                 )
 
             s.input_event_bindings.viewer["keyp"] = "my-action-p"
+            # press "u" while hovering a classified mesh to unclassify it
+            s.input_event_bindings.viewer["keyu"] = "my-action-unclassify"
 
         url = self.viewer.get_viewer_url()
         # display(IFrame(url, width=1200, height=800)) # to display in jupyter
