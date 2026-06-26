@@ -89,18 +89,27 @@ class NeuroglancerPredictor:
             else:
                 served_mesh_path = f"https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires/segment_properties"
 
-            response = requests.get(f"{served_mesh_path}/info")
-            info_file = response.json()
+            # segment ids: prefer the segment_properties inline list (works for
+            # both sharded and unsharded meshes); fall back to the mesh info's
+            # inline ids, then to listing local .index manifest files.
+            self.all_segment_ids = []
             try:
-                self.all_segment_ids = [int(id) for id in info_file["inline"]["ids"]]
-            except (ValueError, KeyError):
-                self.all_segment_ids = []
-                files = set(os.listdir(self.mesh_path))
-                self.all_segment_ids = sorted(
-                    int(f[:-6])
-                    for f in files
-                    if f.endswith(".index") and f[:-6] in files
-                )
+                sp = requests.get(f"{served_mesh_path}/segment_properties/info").json()
+                self.all_segment_ids = [int(x) for x in sp["inline"]["ids"]]
+            except Exception:
+                pass
+            if not self.all_segment_ids:
+                info_file = requests.get(f"{served_mesh_path}/info").json()
+                try:
+                    self.all_segment_ids = [
+                        int(id) for id in info_file["inline"]["ids"]
+                    ]
+                except (ValueError, KeyError, TypeError):
+                    files = set(os.listdir(self.mesh_path))
+                    self.all_segment_ids = [
+                        int(f[:-6]) for f in files if f.endswith(".index")
+                    ]
+            self.all_segment_ids = sorted(self.all_segment_ids)
 
             if not self.selected_segment_ids:
                 self.selected_segment_ids = self.all_segment_ids
