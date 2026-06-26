@@ -22,10 +22,8 @@ np = NP.NeuroglancerPredictor(
     dataset,
     organelle,
     class_info=[
-        ("good big (h, red)", "h", "red"),
-        ("bad big (j, gray)", "j", "gray"),
-        ("good small (k, blue)", "k", "blue"),
-        ("bad small (l, magenta)", "l", "magenta"),
+        ("neuron (h, red)", "h", "red"),
+        ("non_neuron (j, gray)", "j", "gray"),
     ],
     segmentation_path=f"/nrs/cellmap/ackermand/symlinks/{dataset}/{dataset}.zarr/recon-1/labels/inference/segmentations/{organelle}",
     mesh_path=f"/nrs/cellmap/ackermand/new_meshes/mesh-n-bone/{dataset}/{organelle}/multires",
@@ -37,3 +35,9 @@ fp.set_metrics(list(df.columns[1:]))
 print("set metrics")
 
 # %%
+if __name__ == "__main__":
+    # When run as a plain script (`pixi run python jrc_mosquito-stylet-6/nuc.py`),
+    # keep the process alive so the neuroglancer viewer server stays up. Not
+    # needed when running the cells interactively (the kernel stays alive).
+    print("viewer:", np.viewer.get_viewer_url())
+    input("Press Enter to quit and stop the viewer...")
