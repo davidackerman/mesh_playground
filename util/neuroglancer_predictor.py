@@ -206,10 +206,34 @@ class NeuroglancerPredictor:
 
                 self.viewer.set_state(new_state)
 
+        def manually_unclassify(s):
+            # Move the hovered mesh out of whatever class layer it's in and back
+            # to the unlabeled "all meshes" pool.
+            selected_mesh_id = None
+            selected_class_key = None
+            for class_key, value_obj in s.selected_values.items():
+                if class_key in ("raw", "all meshes"):
+                    continue
+                value = value_obj.value
+                mesh_id = getattr(value, "key", value)
+                if mesh_id:
+                    selected_mesh_id = mesh_id
+                    selected_class_key = class_key
+                    break
+
+            if selected_mesh_id:
+                new_state = copy.deepcopy(self.viewer.state)
+                class_segments = new_state.layers[selected_class_key].segments
+                if selected_mesh_id in class_segments:
+                    class_segments.remove(selected_mesh_id)
+                new_state.layers["all meshes"].segments.add(selected_mesh_id)
+                self.viewer.set_state(new_state)
+
         for name, key, color in self.class_info:
             self.viewer.actions.add(
                 f"my-action-{key}", partial(manually_label, name, color)
             )
+        self.viewer.actions.add("my-action-unclassify", manually_unclassify)
 
         with self.viewer.config_state.txn() as s:
             for _, key, _ in self.class_info:
@@ -219,6 +243,8 @@ class NeuroglancerPredictor:
                 )
 
             s.input_event_bindings.viewer["keyp"] = "my-action-p"
+            # press "u" while hovering a classified mesh to unclassify it
+            s.input_event_bindings.viewer["keyu"] = "my-action-unclassify"
 
         url = self.viewer.get_viewer_url()
         # display(IFrame(url, width=1200, height=800)) # to display in jupyter
