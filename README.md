@@ -46,16 +46,21 @@ Dataset-specific classification scripts demonstrate the full workflow for each o
 
 ## Setup
 
-Create the conda environment:
+Recommended: [pixi](https://pixi.sh) (reproducible from `pixi.lock`, Python 3.11 + NumPy 2):
 
 ```bash
-conda env create -f environment.yaml
+pixi install          # build the environment
+pixi run python ...   # run inside it (or `pixi shell`)
 ```
 
-Or without pinned versions:
+`pymeshlab` is installed from conda-forge (the PyPI wheel is not NumPy-2 compatible
+and bundles an old libsqlite3 that breaks cloud-volume).
+
+Alternatively, the legacy conda environment:
 
 ```bash
-conda env create -f environment_no_versions.yaml
+conda env create -f environment.yaml          # pinned
+conda env create -f environment_no_versions.yaml   # unpinned
 ```
 
 ## Usage

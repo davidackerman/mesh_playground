@@ -1,0 +1,43 @@
+[project]
+name = "mesh_playground"
+version = "0.1.0"
+description = "Interactive classification and analysis of 3D meshes from EM segmentations"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tasks]
+
+# put the repo root on PYTHONPATH so `import util...` works from any cwd
+# (e.g. `pixi run python jrc_mosquito-stylet-6/nuc.py`)
+[activation.env]
+PYTHONPATH = "$PIXI_PROJECT_ROOT"
+
+[dependencies]
+python = ">=3.11,<3.13"
+pip = "*"
+numpy = "*"
+scipy = "*"
+pandas = "*"
+scikit-learn = "*"
+matplotlib = "*"
+seaborn = "*"
+networkx = "*"
+dask = "*"
+distributed = "*"
+zarr = "*"
+requests = "*"
+trimesh = "*"
+xvfbwrapper = "*"
+ipykernel = "*"
+pytest = "*"
+# pymeshlab from conda-forge: the conda build is numpy-2 compatible and links the
+# env's libsqlite3, unlike the PyPI wheel which bundles an ancient libsqlite3 that
+# shadows the env's and breaks cloud-volume's sqlite3 usage.
+pymeshlab = "*"
+
+[pypi-dependencies]
+cloud-volume = "*"
+dracopy = "*"
+navis = "*"
+skeletor = "*"
+neuroglancer = "*"
