@@ -29,13 +29,15 @@ class NeuroglancerPredictor:
         previous_results=None,
         segmentation_path=None,
         mesh_path=None,
+        raw_path=None,
+        path_rewrites=None,
     ):
+        # local path prefix -> URL prefix, so a file server can hand local data
+        # to the viewer, e.g. {"/data/": "https://fileserver.example.org/data/"}
+        self.path_rewrites = path_rewrites or {}
         self.segmentation_path = None
         if segmentation_path is not None:
-            vm_path = "https://cellmap-vm1.int.janelia.org"
-            segmentation_path = segmentation_path.replace(
-                "/nrs/cellmap/", f"{vm_path}/nrs/"
-            ).replace("/groups/cellmap/cellmap/", f"{vm_path}/dm11/")
+            segmentation_path = self.to_url(segmentation_path)
             self.segmentation_path = (
                 f"zarr://{segmentation_path}"
                 if ".zarr" in segmentation_path
@@ -54,6 +56,7 @@ class NeuroglancerPredictor:
         self.previous_results = previous_results
         self.mesh_index_to_class_dict = {}
         self.mesh_path = mesh_path
+        self.raw_path = raw_path
         if previous_results:
             previous_results_df = pd.read_csv(self.previous_results)
             manually_labeled_class = previous_results_df[
@@ -67,28 +70,31 @@ class NeuroglancerPredictor:
                         mesh_index
                     ]
 
+    def to_url(self, path):
+        """Apply the first matching ``path_rewrites`` prefix to ``path``."""
+        for prefix, url in self.path_rewrites.items():
+            if path.startswith(prefix):
+                return url + path[len(prefix) :]
+        return path
+
     def setup_neuroglancer(self):
         neuroglancer.set_server_bind_address("0.0.0.0")
         self.viewer = neuroglancer.Viewer()
 
-        if self.use_meshes:
-            if self.mesh_path is not None:
-                vm_path = "https://cellmap-vm1.int.janelia.org"
-                served_mesh_path = self.mesh_path.replace(
-                    "/nrs/cellmap/", f"{vm_path}/nrs/"
-                ).replace("/groups/cellmap/cellmap/", f"{vm_path}/dm11/")
-                served_mesh_path = (
-                    f"zarr://{served_mesh_path}"
-                    if ".zarr" in served_mesh_path
-                    else (
-                        f"n5://{served_mesh_path}"
-                        if ".n5" in served_mesh_path
-                        else served_mesh_path
-                    )
-                )
-            else:
-                served_mesh_path = f"https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires/segment_properties"
+        if self.mesh_path is None:
+            raise ValueError("mesh_path is required (a precomputed mesh source)")
+        served_mesh_path = self.to_url(self.mesh_path)
+        served_mesh_path = (
+            f"zarr://{served_mesh_path}"
+            if ".zarr" in served_mesh_path
+            else (
+                f"n5://{served_mesh_path}"
+                if ".n5" in served_mesh_path
+                else served_mesh_path
+            )
+        )
 
+        if self.use_meshes:
             # segment ids: prefer the segment_properties inline list (works for
             # both sharded and unsharded meshes); fall back to the mesh info's
             # inline ids, then to listing local .index manifest files.
@@ -117,24 +123,22 @@ class NeuroglancerPredictor:
                 zip(self.all_segment_ids, np.arange(len(self.all_segment_ids)))
             )
             with self.viewer.txn() as s:
-                dtype = (
-                    "uint8"
-                    if os.path.exists(
-                        f"/nrs/cellmap/data/{self.dataset}/{self.dataset}.zarr/recon-1/em/fibsem-uint8/"
-                    )
-                    else "uint16"
-                )
-
-                s.layers["raw"] = neuroglancer.ImageLayer(  # Single MEsh Layer?
-                    source=[
-                        f"zarr://https://cellmap-vm1.int.janelia.org/nrs/data/{self.dataset}/{self.dataset}.zarr/recon-1/em/fibsem-{dtype}/",
-                    ]
-                )
+                if self.raw_path is not None:
+                    raw_url = self.to_url(self.raw_path)
+                    if "://" not in raw_url or raw_url.startswith(("http", "s3", "gs")):
+                        raw_url = (
+                            f"n5://{raw_url}" if ".n5" in raw_url else f"zarr://{raw_url}"
+                        )
+                    s.layers["raw"] = neuroglancer.ImageLayer(source=[raw_url])
 
                 s.layers["all meshes"] = neuroglancer.SegmentationLayer(
                     source=[
-                        self.segmentation_path,
-                        f"precomputed://{served_mesh_path}",
+                        source
+                        for source in (
+                            self.segmentation_path,
+                            f"precomputed://{served_mesh_path}",
+                        )
+                        if source is not None
                     ]
                 )
 
@@ -147,9 +151,7 @@ class NeuroglancerPredictor:
 
                 s.layout = "3d"
         else:
-            response = requests.get(
-                f"https://cellmap-vm1.int.janelia.org/{self.segmentation_path}",
-            )
+            response = requests.get(f"{served_mesh_path}/segment_properties/info")
             info_file = response.json()
             self.all_segment_ids = info_file["inline"]["ids"]
             self.mesh_id_to_index_dict = dict(
@@ -158,7 +160,7 @@ class NeuroglancerPredictor:
             with self.viewer.txn() as s:
 
                 s.layers["segmentation"] = neuroglancer.SegmentationLayer(
-                    source=f"zarr://https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires",
+                    source=self.segmentation_path,
                 )
                 for index, segment_id in enumerate(self.all_segment_ids):
                     self.mesh_id_to_index_dict[int(segment_id)] = index
@@ -166,7 +168,7 @@ class NeuroglancerPredictor:
 
                 for class_name, _, _ in self.class_info:
                     s.layers[class_name] = neuroglancer.SegmentationLayer(
-                        source=f"precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires",
+                        source=f"precomputed://{served_mesh_path}",
                     )
 
                 s.layout = "3d"
@@ -194,7 +196,7 @@ class NeuroglancerPredictor:
                 ):  # should do it with name since this is a whole object
                     new_state.layers[class_layer] = (
                         neuroglancer.SegmentationLayer(  # Single MEsh Layer?
-                            source=f"precomputed://https://cellmap-vm1.int.janelia.org/nrs/ackermand/meshes/multiresolution/{self.dataset}/{self.organelle}/multires",
+                            source=f"precomputed://{served_mesh_path}",
                         )
                     )
                 new_state.layers[class_layer].segments.add(selected_mesh_id)

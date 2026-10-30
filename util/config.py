@@ -12,7 +12,11 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def load_dataset_config(key, config_path=None):
-    """Return the config dict for dataset ``key`` from ``config.yaml``."""
+    """Return the config dict for dataset ``key`` from ``config.yaml``.
+
+    A top-level ``path_rewrites`` applies to every dataset unless the dataset
+    sets its own.
+    """
     config_path = config_path or os.path.join(_REPO_ROOT, "config.yaml")
     if not os.path.exists(config_path):
         raise FileNotFoundError(
@@ -26,4 +30,6 @@ def load_dataset_config(key, config_path=None):
         raise KeyError(
             f"dataset '{key}' not in {config_path}; available: {sorted(datasets)}"
         )
-    return datasets[key]
+    entry = dict(datasets[key])
+    entry.setdefault("path_rewrites", cfg.get("path_rewrites") or {})
+    return entry

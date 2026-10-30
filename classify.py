@@ -31,8 +31,11 @@ def main():
         cfg["dataset"],
         cfg["organelle"],
         class_info=class_info,
-        segmentation_path=cfg["segmentation_path"],
+        segmentation_path=cfg.get("segmentation_path"),
         mesh_path=cfg["mesh_path"],
+        raw_path=cfg.get("raw_path"),
+        path_rewrites=cfg["path_rewrites"],
+        previous_results=cfg.get("previous_results"),
     )
     predictor.setup_neuroglancer()
     fp = FP.FitAndPredict(df, predictor)
