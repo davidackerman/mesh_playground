@@ -11,9 +11,7 @@ Usage:
     pixi run python analyze.py <mesh_dir> <out_dir> [options]
 
 Example:
-    pixi run python analyze.py \\
-        /nrs/cellmap/ackermand/symlinks/jrc_mosquito-stylet-6/neuroglancer/mesh/inference/segmentations/nuc \\
-        ./out --lod 0 --workers 10
+    pixi run python analyze.py /path/to/mesh/multires ./out --lod 0 --workers 10
 """
 import argparse
 import os

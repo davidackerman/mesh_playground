@@ -1,6 +1,6 @@
 # mesh_playground
 
-Interactive classification and analysis of 3D mesh objects from electron microscopy segmentations. Designed for morphological classification of cellular organelles (canaliculi, nuclei, mitochondria) using a Neuroglancer-based annotation workflow and machine learning.
+Interactive classification and analysis of 3D mesh objects from electron microscopy segmentations. Designed for morphological classification of cellular organelles (e.g. nuclei, mitochondria) using a Neuroglancer-based annotation workflow and machine learning.
 
 ## Features
 
@@ -8,41 +8,23 @@ Interactive classification and analysis of 3D mesh objects from electron microsc
 - **Interactive annotation**: web-based Neuroglancer viewer with keyboard-driven classification into user-defined classes
 - **ML classification**: trains an MLP classifier on manually labeled mesh features to predict classes for unlabeled meshes
 - **Iterative refinement**: reload previous classification results as ground truth and refine with additional rounds of annotation
-- **Parallel processing**: Dask-based delayed evaluation for batch mesh metric computation
-
-## Datasets
-
-Example scripts are included for:
-
-- Mouse liver canaliculi (`jrc_mus-liver-zon-1`, `jrc_mus-liver-zon-2`)
-- Mouse salivary gland nuclei (`jrc_mus-salivary-1`, `jrc_mus-salivary-2`, `jrc_mus-salivary-3`)
-- C. elegans nuclei (`jrc_P3_E5_D1_N2`)
+- **Parallel processing**: Dask-based batch mesh metric computation
 
 ## Project Structure
 
 ```
 mesh_playground/
+├── analyze.py                     # Batch mesh metrics -> mesh_metrics.csv
+├── classify.py                    # Annotation + classification driver (reads config.yaml)
+├── config.example.yaml            # Template for config.yaml (gitignored)
 ├── util/
 │   ├── mesh.py                    # Mesh loading, repair, and metric computation
+│   ├── precomputed_mesh.py        # Neuroglancer precomputed mesh reader
 │   ├── neuroglancer_predictor.py  # Neuroglancer viewer setup and annotation
-│   └── fit_and_predict.py         # ML training and prediction pipeline
-├── environment.yaml               # Conda environment specification
-└── output/                        # Classification results (CSV)
+│   ├── fit_and_predict.py         # ML training and prediction pipeline
+│   └── config.py                  # config.yaml loader
+└── output/                        # Metrics and classification results (CSV)
 ```
-
-## Examples
-
-Dataset-specific classification scripts demonstrate the full workflow for each organism and organelle:
-
-| Script | Dataset | Organelle | Description |
-|--------|---------|-----------|-------------|
-| `jrc_mus-salivary-1/nuc.py` | Mouse salivary gland 1 | Nuclei | Single-round nuclei classification |
-| `jrc_mus-salivary-2/nuc.py` | Mouse salivary gland 2 | Nuclei | Single-round nuclei classification |
-| `jrc_mus-salivary-3/nuc.py` | Mouse salivary gland 3 | Nuclei | Single-round nuclei classification |
-| `c-elegans/jrc_P3_E5_D1_N2.py` | C. elegans | Nuclei | Nuclei classification with post-hoc filtering of "good" results |
-| `zon-1_canaliculi_classifier.py` | Mouse liver zone 1 | Canaliculi | Canaliculi classification with custom segmentation path |
-| `zon-2_canoliculi_classifier.py` | Mouse liver zone 2 | Canaliculi | Multi-round iterative refinement (see also `show_yurii.py`) |
-| `show_yurii.py` | Mouse liver zone 2 | Canaliculi | Full multi-round workflow: classify top 1000 by volume, refine next 1000 using prior results, then re-classify top "good" predictions |
 
 ## Setup
 
@@ -56,67 +38,62 @@ pixi run python ...   # run inside it (or `pixi shell`)
 `pymeshlab` is installed from conda-forge (the PyPI wheel is not NumPy-2 compatible
 and bundles an old libsqlite3 that breaks cloud-volume).
 
+The thickness metric (pymeshlab's shape diameter function) needs OpenGL, so
+`util/mesh.py` computes it under a virtual X display. Install the system `Xvfb`
+binary (e.g. `apt install xvfb`) on headless machines.
+
 Alternatively, the legacy conda environment:
 
 ```bash
-conda env create -f environment.yaml          # pinned
-conda env create -f environment_no_versions.yaml   # unpinned
+conda env create -f environment.yaml
+```
+
+## Quick start on public data
+
+`config.example.yaml` includes the mitochondria of a HeLa cell from OpenOrganelle (`jrc_hela-2`, 421 objects).
+
+```bash
+cp config.example.yaml config.yaml
+pixi run python analyze.py \
+    https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/neuroglancer/mesh/mito_seg \
+    output/metrics/jrc_hela-2_mito
+pixi run python classify.py jrc_hela-2_mito
 ```
 
 ## Usage
 
 ### 1. Compute mesh metrics
 
-```python
-from util.mesh import Mesh
+`analyze.py` reads every segment of a Neuroglancer precomputed mesh source (local path or URL) and writes `mesh_metrics.csv`, fanning the work out across processes with Dask:
 
-mesh = Mesh(mesh_path, compute_skeleton=False)
-metrics = mesh.get_metrics()
+```bash
+pixi run python analyze.py <mesh_dir> <out_dir> [--lod 0] [--workers 10] [--skeletons]
 ```
 
 ### 2. Interactive annotation
 
-```python
-from util.neuroglancer_predictor import NeuroglancerPredictor
+Add an entry for your data to `config.yaml` (see `config.example.yaml`): the metrics CSV, the mesh source, optionally the EM volume and segmentation, and the classes as `[name, hotkey, color]`. Then:
 
-np = NeuroglancerPredictor(
-    dataset="jrc_mus-liver-zon-1",
-    organelle="canaliculi",
-    class_info=[
-        ("good big (h, red)", "h", "red"),
-        ("bad big (j, gray)", "j", "gray"),
-        ("good small (k, blue)", "k", "blue"),
-        ("bad small (l, magenta)", "l", "magenta"),
-    ]
-)
-np.setup_neuroglancer()
+```bash
+pixi run python classify.py <dataset_key>
 ```
 
-Open the printed Neuroglancer URL in a browser. All meshes are displayed in the "all meshes" layer. Select a mesh and press one of the classification keys to move it into the corresponding class layer:
+Open the printed Neuroglancer URL in a browser. All meshes are displayed in the "all meshes" layer. Hover over a mesh and press one of the classification keys to move it into the corresponding class layer:
 
 | Key | Action |
 |-----|--------|
-| `h` | Classify selected mesh as "good big" (red) |
-| `j` | Classify selected mesh as "bad big" (gray) |
-| `k` | Classify selected mesh as "good small" (blue) |
-| `l` | Classify selected mesh as "bad small" (magenta) |
+| class hotkey (e.g. `h`, `j`) | Move the hovered mesh into that class's layer, in its color |
 | `Shift+<key>` | Toggle visibility of the corresponding class layer |
+| `u` | Move the hovered mesh back to the unlabeled pool |
 | `p` | Fit classifier on manual labels and predict all remaining meshes |
 
-The classification keys are defined by the `class_info` parameter — each tuple is `(class_name, key, color)`. When you press a key, the selected mesh is removed from its current layer and added to the target class layer with the specified color.
+If the data are on local disk, `path_rewrites` in `config.yaml` maps local path prefixes to the URL of a file server that can serve them to the viewer.
 
 ### 3. Train classifier and predict
 
-After manually labeling a representative subset, press `p` to train an MLP classifier (scikit-learn `MLPClassifier`) on the labeled mesh metrics and predict classes for all unlabeled meshes. Predictions are color-coded in the "all meshes" layer and results are written to CSV.
+After manually labeling a representative subset, press `p` to train an MLP classifier (scikit-learn `MLPClassifier`) on the labeled mesh metrics and predict classes for all unlabeled meshes. Predictions are color-coded in the "all meshes" layer, and each run is written to `output/classification/{dataset}/{organelle}/{session}/classification_{timestamp}.csv` with columns: Object ID, Manually Labeled Class, Class Prediction, and Class Name.
 
-```python
-from util.fit_and_predict import FitAndPredict
-
-fp = FitAndPredict(df_metrics, np)
-fp.set_metrics(metric_columns)  # Binds the 'p' key to fit-and-predict
-```
-
-Results are exported to `output/classification/{dataset}/{organelle}/{timestamp}/classification.csv` with columns: Object ID, Manually Labeled Class, Class Prediction, and Class Name.
+To continue from an earlier round, set `previous_results` in the dataset's config entry to one of those CSVs: its manual labels are loaded as ground truth for the next fit.
 
 ## Author
 

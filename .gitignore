@@ -9,6 +9,10 @@ dask-worker-space/
 # pixi: ignore the local environment, but track the lockfile for reproducibility
 .pixi/
 !pixi.lock
+
+# local, machine-specific dataset paths (see config.example.yaml) -- keeps
+# data locations and dataset names out of the committed code
+config.yaml
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

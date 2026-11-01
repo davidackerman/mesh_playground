@@ -1,0 +1,36 @@
+# Copy to config.yaml (gitignored) and fill in real, machine-specific paths.
+# Keeping paths here keeps data locations and dataset names out of the
+# committed code. classify.py reads an entry by its top-level key:
+#
+#     pixi run python classify.py <dataset_key>
+
+# Optional: local path prefix -> URL prefix, for serving local data to the
+# viewer through a file server. Applies to every dataset unless one sets its own.
+# path_rewrites:
+#   /path/to/data/: https://fileserver.example.org/data/
+
+datasets:
+  # Public example: mitochondria in a HeLa cell from OpenOrganelle. Make the
+  # metrics first with:
+  #   pixi run python analyze.py https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/neuroglancer/mesh/mito_seg output/metrics/jrc_hela-2_mito
+  jrc_hela-2_mito:
+    dataset: jrc_hela-2
+    organelle: mito
+    metrics_csv: output/metrics/jrc_hela-2_mito/mesh_metrics.csv
+    mesh_path: https://janelia-cosem-datasets.s3.amazonaws.com/jrc_hela-2/neuroglancer/mesh/mito_seg
+    raw_path: s3://janelia-cosem-datasets/jrc_hela-2/jrc_hela-2.zarr/recon-1/em/fibsem-uint8
+    classes:                        # [display name, hotkey, color]
+      - [good, h, red]
+      - [bad, j, gray]
+
+  my-dataset:                       # arbitrary key passed to classify.py
+    dataset: my-dataset             # used to name the output directory
+    organelle: nuc
+    metrics_csv: /path/to/mesh_metrics.csv
+    mesh_path: /path/to/multires    # precomputed mesh source (path or URL)
+    raw_path: /path/to/data.zarr/recon-1/em/fibsem-uint8           # optional EM layer
+    segmentation_path: /path/to/data.zarr/recon-1/labels/inference/segmentations/nuc  # optional
+    # previous_results: output/classification/.../classification_<timestamp>.csv  # continue from an earlier round
+    classes:                        # [display name, hotkey, color]
+      - [neuron, h, red]
+      - [non_neuron, j, gray]
